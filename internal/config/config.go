@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/netip"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -22,6 +25,16 @@ import (
 type Config struct {
 	DB      DB      `yaml:"db"`
 	Secrets Secrets `yaml:"secrets"`
+	HTTP    HTTP    `yaml:"http"`
+}
+
+// HTTP configures the web server.
+type HTTP struct {
+	// Listen is host:port to bind to. The host may be empty to bind all interfaces.
+	Listen string `yaml:"listen"`
+	// TrustedProxies are the reverse proxies (IP addresses or CIDR ranges) whose X-Forwarded-For header is believed.
+	// Empty means no proxy is trusted and the header is ignored.
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // DB describes the MariaDB/MySQL connection.
@@ -49,7 +62,10 @@ var (
 // Load reads the file at path (or at $RAPTOR_CONFIG when path is empty; no file is read when both are empty), then
 // applies the RAPTOR_* environment variables. It does not validate: commands validate the parts they need.
 func Load(path string, getenv func(string) string) (Config, error) {
-	cfg := Config{DB: DB{Host: "127.0.0.1", Port: 3306, TLS: "false"}}
+	cfg := Config{
+		DB:   DB{Host: "127.0.0.1", Port: 3306, TLS: "false"},
+		HTTP: HTTP{Listen: "127.0.0.1:8080"},
+	}
 
 	if path == "" {
 		path = getenv("RAPTOR_CONFIG")
@@ -92,6 +108,16 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	override(&cfg.DB.Password, "RAPTOR_DB_PASSWORD")
 	override(&cfg.DB.TLS, "RAPTOR_DB_TLS")
 	override(&cfg.Secrets.Key, "RAPTOR_SECRET_KEY")
+	override(&cfg.HTTP.Listen, "RAPTOR_HTTP_LISTEN")
+
+	if v := getenv("RAPTOR_TRUSTED_PROXIES"); v != "" {
+		cfg.HTTP.TrustedProxies = nil
+		for _, entry := range strings.Split(v, ",") {
+			if entry = strings.TrimSpace(entry); entry != "" {
+				cfg.HTTP.TrustedProxies = append(cfg.HTTP.TrustedProxies, entry)
+			}
+		}
+	}
 
 	if v := getenv("RAPTOR_DB_PORT"); v != "" {
 		port, err := strconv.Atoi(v)
@@ -122,6 +148,50 @@ func (d DB) Validate() error {
 	default:
 		return errors.New(`db.tls must be one of "false", "true", "skip-verify", "preferred"`)
 	}
+}
+
+// Validate checks the listen address and the trusted proxy list.
+func (h HTTP) Validate() error {
+	host, port, err := net.SplitHostPort(h.Listen)
+	if err != nil {
+		return errors.New("http.listen must be host:port, for example 127.0.0.1:8080")
+	}
+	if host != "" && !hostPattern.MatchString(host) {
+		return errors.New("http.listen has a host with characters outside A-Z a-z 0-9 . _ : -")
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return errors.New("http.listen must have a port between 1 and 65535")
+	}
+	_, err = h.TrustedPrefixes()
+	return err
+}
+
+// TrustedPrefixes parses the trusted proxy list. A single address becomes a /32 or /128. A range that covers every
+// address is refused: trusting everybody would let any client choose the address Raptor sees for it.
+func (h HTTP) TrustedPrefixes() ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, entry := range h.TrustedProxies {
+		var prefix netip.Prefix
+		if strings.Contains(entry, "/") {
+			p, err := netip.ParsePrefix(entry)
+			if err != nil {
+				return nil, fmt.Errorf("http.trusted_proxies: %q is not a valid CIDR range", entry)
+			}
+			prefix = p.Masked()
+		} else {
+			addr, err := netip.ParseAddr(entry)
+			if err != nil {
+				return nil, fmt.Errorf("http.trusted_proxies: %q is not a valid IP address", entry)
+			}
+			addr = addr.Unmap()
+			prefix = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		if prefix.Bits() == 0 {
+			return nil, fmt.Errorf("http.trusted_proxies: %q would trust every address", entry)
+		}
+		out = append(out, prefix)
+	}
+	return out, nil
 }
 
 // KeyBytes decodes the secret key.
