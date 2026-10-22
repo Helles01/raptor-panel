@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Helles01/raptor-panel/internal/eggrules"
 )
 
 // MaxFileSize is the largest egg file that is read.
@@ -253,6 +255,10 @@ func (e Egg) Validate() error {
 		env[v.EnvVariable] = true
 		if strings.TrimSpace(v.Rules) == "" {
 			return fmt.Errorf("variable %q: rules are required", v.Name)
+		}
+		// Rules that cannot be applied would leave a variable with nothing to check its values against.
+		if _, err := eggrules.Parse(v.Rules); err != nil {
+			return fmt.Errorf("variable %q: %w", v.Name, err)
 		}
 	}
 	return nil
