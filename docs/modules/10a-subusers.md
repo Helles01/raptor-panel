@@ -8,26 +8,28 @@ outbox wait for the schema.
 | Where | Content |
 |---|---|
 | `permissions.Normalize`, `permissions.CanAssign` | See `07a-server-config.md`: what is stored for a subuser (known permissions only, `websocket.connect` always), and the subset rule. |
-| `servers.AuthorizeSubuserChange(actorUUID, held, targetUUID, requested)` | The two checks the reference's `SubuserRequest::authorize` makes: nobody changes or removes **themselves** (`ErrSelfEdit`, answered with 403), and a request may only hand on permissions the actor holds (`ErrCannotAssign`, with the reference's text). Owners and administrators pass `["*"]` as `held`. For adding a subuser the target is empty; for a removal `requested` is nil. The UUIDs are compared ignoring case. |
+| `servers.AuthorizeSubuserChange(SubuserChange{…})` | Three rules, in this order. (1) Nobody changes or removes **themselves** (`ErrSelfEdit`, answered with 403). (2) Nobody changes or removes a subuser who **holds more than they do** (`ErrTargetOutranks`, C-025: the project owner's decision, not in the reference). (3) A request may only hand on permissions the actor holds (`ErrCannotAssign`, the reference's text). Owners and administrators pass `["*"]` as `Held` and are bound only by rule 1. When adding, `TargetUUID` and `TargetHeld` are empty; for a removal `Requested` is nil. The UUIDs are compared ignoring case. |
 | `servers.CheckNewSubuser(ownerID, userID, alreadySubuser)` | The two refusals of `SubuserCreationService`: the owner cannot be added, and a user cannot be added twice. The texts are the reference's. |
 | `users.GenerateUsername(email, rand)` | The username of the account created when an unknown email address is added as a subuser (C-024). Always passes `users.Validate`. |
 
-Mutation checks confirmed that removing the self-edit check, making it case-sensitive, skipping the subset check, and
-swapping the owner/duplicate order each fail a test. The wildcard shortcut in `CanAssign` is covered by the admin-name case.
+Mutation checks confirmed that removing the self-edit check, making it case-sensitive, skipping the subset check, skipping
+or mis-aiming the outranking check, and swapping the order of the rules each fail a test. The wildcard shortcut in
+`CanAssign` is covered by the admin-name case.
 
 ## What matches the reference
 The self-edit rule, the subset rule with its exceptions for owners and administrators, the two refusals when adding, the
 username recipe (local part, 64 characters, three random characters), and the stored permission list (`Normalize`).
 
-## Deliberate differences
+## Deliberate differences (`docs/compat.md`: C-024, C-025)
 - Generated usernames always pass the username rule (C-024).
-
-## Open question (not implemented, for the project owner to decide)
-In the reference, the subset rule limits what a subuser may **hand on**. It does not limit **whom they may change**: a
-subuser with `user.update` or `user.delete` can lower the permissions of, or remove, another subuser who holds more than they
-do (they cannot gain anything by it). Raptor keeps this behaviour so that existing setups work the same. A stricter rule
-would be "only manage subusers whose permissions are a subset of your own"; it would be a small addition to
-`AuthorizeSubuserChange`, but it changes who can do what, so it is not done without a decision.
+- **Whom a subuser may manage** (C-025). In the reference the subset rule limits only what a subuser may hand on; a subuser
+  with `user.update` or `user.delete` can lower the permissions of, or remove, another subuser who holds more than they do.
+  Decided by the project owner (2026-10-22): a subuser may manage only subusers whose permissions are a subset of their own
+  ("only what they hold themselves"). Owners and administrators are not limited.
+  - What it means in practice: two subusers with equal permissions can manage each other; a subuser with fewer permissions
+    cannot touch one with more.
+  - A subuser entry that holds a permission name which no longer exists (from an older panel version) can be managed only by
+    the owner or an administrator: Raptor fails closed. `raptor audit` (M17) should list such entries before cutover.
 
 ## Still to do (waits for the schema)
 - The endpoints, the permission check of each route (`user.create`, `user.read`, `user.update`, `user.delete`), the
