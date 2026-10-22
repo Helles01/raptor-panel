@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Helles01/raptor-panel/internal/backups"
 	"github.com/Helles01/raptor-panel/internal/permissions"
 )
 
@@ -25,7 +26,6 @@ const (
 	MaxNameLength = 191
 
 	maxCommandLength = 4096 // what the node accepts for one console command
-	maxBackupPayload = 8192
 )
 
 var powerActions = map[string]bool{"start": true, "stop": true, "restart": true, "kill": true}
@@ -57,8 +57,9 @@ func (t Task) Validate() error {
 			return errors.New("the power action must be start, stop, restart or kill")
 		}
 	case ActionBackup:
-		if len(t.Payload) > maxBackupPayload || strings.ContainsRune(t.Payload, 0) || !utf8.ValidString(t.Payload) {
-			return fmt.Errorf("the list of ignored files must be valid text of at most %d bytes without NUL characters", maxBackupPayload)
+		// The payload is the list of files to leave out, with the same rules as when a backup is started by hand.
+		if _, err := backups.ParseIgnored(t.Payload); err != nil {
+			return err
 		}
 	default:
 		return errors.New("the action must be command, power or backup")
