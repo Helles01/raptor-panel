@@ -85,3 +85,43 @@ func TestUUIDv4(t *testing.T) {
 		t.Error("a short reader must be an error")
 	}
 }
+
+func TestRandomBelow(t *testing.T) {
+	// For n=5 the largest draw would favour 0, so it is thrown away: 0xFFFFFFFF, then 7, gives 7 mod 5.
+	got, err := RandomBelow(bytes.NewReader([]byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 7}), 5)
+	if err != nil || got != 2 {
+		t.Errorf("RandomBelow = %d, %v; want 2", got, err)
+	}
+
+	for _, n := range []int{1, 2, 62, 1000, 130000, 1 << 31} {
+		for i := 0; i < 200; i++ {
+			v, err := RandomBelow(rand.Reader, n)
+			if err != nil || v < 0 || v >= n {
+				t.Fatalf("RandomBelow(%d) = %d, %v", n, v, err)
+			}
+		}
+	}
+
+	counts := make([]int, 62)
+	for i := 0; i < 62000; i++ {
+		v, err := RandomBelow(rand.Reader, 62)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counts[v]++
+	}
+	for v, c := range counts {
+		if c < 800 || c > 1200 {
+			t.Errorf("value %d came up %d times in 62000 draws", v, c)
+		}
+	}
+
+	for _, bad := range []int{0, -1, 1<<31 + 1} {
+		if _, err := RandomBelow(rand.Reader, bad); err == nil {
+			t.Errorf("RandomBelow(%d) must be refused", bad)
+		}
+	}
+	if _, err := RandomBelow(bytes.NewReader([]byte{1, 2, 3}), 10); err == nil {
+		t.Error("want an error when the random source runs out")
+	}
+}

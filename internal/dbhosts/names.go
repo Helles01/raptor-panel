@@ -68,7 +68,7 @@ func Password(r io.Reader) (string, error) {
 	}
 	b := []byte(base)
 
-	extra, err := randomBelow(r, 5)
+	extra, err := ids.RandomBelow(r, 5)
 	if err != nil {
 		return "", err
 	}
@@ -77,33 +77,19 @@ func Password(r io.Reader) (string, error) {
 		positions[i] = i
 	}
 	for i := 0; i < 2+extra; i++ {
-		j, err := randomBelow(r, PasswordLength-i)
+		j, err := ids.RandomBelow(r, PasswordLength-i)
 		if err != nil {
 			return "", err
 		}
 		positions[i], positions[i+j] = positions[i+j], positions[i]
 
-		c, err := randomBelow(r, len(specialCharacters))
+		c, err := ids.RandomBelow(r, len(specialCharacters))
 		if err != nil {
 			return "", err
 		}
 		b[positions[i]] = specialCharacters[c]
 	}
 	return string(b), nil
-}
-
-// randomBelow returns a uniform number from 0 to n-1 (n up to 256) without modulo bias.
-func randomBelow(r io.Reader, n int) (int, error) {
-	limit := 256 - 256%n
-	var b [1]byte
-	for {
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return 0, fmt.Errorf("read random bytes: %w", err)
-		}
-		if int(b[0]) < limit {
-			return int(b[0]) % n, nil
-		}
-	}
 }
 
 // ValidateRemote checks the address a database user may connect from: letters, digits and _ - / . % : (a host name, an
@@ -183,7 +169,7 @@ func ChooseHost(hosts []HostChoice, nodeID uint64, allowRandom bool, r io.Reader
 		return HostChoice{}, ErrNoSuitableHost
 	}
 
-	i, err := randomBelow(r, len(pool))
+	i, err := ids.RandomBelow(r, len(pool))
 	if err != nil {
 		return HostChoice{}, err
 	}

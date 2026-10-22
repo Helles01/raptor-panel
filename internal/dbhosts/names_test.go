@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
-	"math"
 	"strings"
 	"testing"
 )
@@ -101,28 +100,6 @@ func TestPassword(t *testing.T) {
 	// Enough bytes for the letters and digits but not for the special characters.
 	if _, err := Password(bytes.NewReader(bytes.Repeat([]byte{1}, 40))); err == nil {
 		t.Error("want an error when the random bytes run out half way")
-	}
-}
-
-func TestRandomBelowHasNoBias(t *testing.T) {
-	// For n=5 the byte 255 would favour 0, so it is skipped: 255 then 7 gives 7 mod 5.
-	got, err := randomBelow(bytes.NewReader([]byte{255, 7}), 5)
-	if err != nil || got != 2 {
-		t.Errorf("randomBelow = %d, %v; want 2", got, err)
-	}
-
-	counts := make([]int, 62)
-	for i := 0; i < 62000; i++ {
-		n, err := randomBelow(rand.Reader, 62)
-		if err != nil {
-			t.Fatal(err)
-		}
-		counts[n]++
-	}
-	for n, c := range counts {
-		if math.Abs(float64(c)-1000) > 200 {
-			t.Errorf("value %d came up %d times in 62000 draws", n, c)
-		}
 	}
 }
 
