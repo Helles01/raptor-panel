@@ -32,6 +32,16 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
+// unknownUserHash is a hash of a password nobody knows (random, then discarded), with the same cost as real ones.
+const unknownUserHash = "$2a$10$LKfCZFvqD7biUwkwuJu6desOcFocG5r0xZPrJ7kJO.L5zUwhg/.G."
+
+// VerifyUnknownUser spends the time of a password check and always reports false. A login for a user that does not exist
+// calls it, so that answering quickly does not tell an attacker which user names exist.
+func VerifyUnknownUser(password string) bool {
+	VerifyPassword(unknownUserHash, password)
+	return false
+}
+
 // VerifyPassword reports whether password matches a stored bcrypt hash.
 //
 // Hashes written by the reference panel (PHP) start with $2y$. That is the same algorithm as $2a$, so the prefix is

@@ -221,3 +221,50 @@ func TestThrottleFailsClosedOnAnEmptyKey(t *testing.T) {
 		t.Error("an empty key must not be counted in a shared bucket")
 	}
 }
+
+func TestLimiterCountsOnlyFailures(t *testing.T) {
+	l, clock := newTestLimiter(t, 3, time.Minute)
+
+	// Checking never counts, however often it is done.
+	for i := 0; i < 10; i++ {
+		if blocked, _ := l.Blocked("a"); blocked {
+			t.Fatal("blocked before any failure")
+		}
+	}
+
+	l.Fail("a")
+	l.Fail("a")
+	if blocked, _ := l.Blocked("a"); blocked {
+		t.Error("blocked after 2 of 3 failures")
+	}
+	l.Fail("a")
+	blocked, retry := l.Blocked("a")
+	if !blocked || retry != time.Minute {
+		t.Errorf("after 3 failures: blocked=%v retry=%v, want blocked for a minute", blocked, retry)
+	}
+
+	clock.t = clock.t.Add(40 * time.Second)
+	if blocked, retry := l.Blocked("a"); !blocked || retry != 20*time.Second {
+		t.Errorf("40 s later: blocked=%v retry=%v, want 20 s left", blocked, retry)
+	}
+
+	clock.t = clock.t.Add(20 * time.Second)
+	if blocked, _ := l.Blocked("a"); blocked {
+		t.Error("still blocked after the window")
+	}
+	l.Fail("a")
+	if blocked, _ := l.Blocked("a"); blocked {
+		t.Error("a new window starts with one failure, not blocked")
+	}
+
+	// Other keys are not affected.
+	for i := 0; i < 3; i++ {
+		l.Fail("b")
+	}
+	if blocked, _ := l.Blocked("b"); !blocked {
+		t.Error("b should be blocked")
+	}
+	if blocked, _ := l.Blocked("c"); blocked {
+		t.Error("c was never counted")
+	}
+}

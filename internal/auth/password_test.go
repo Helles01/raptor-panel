@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestHashAndVerify(t *testing.T) {
@@ -97,5 +99,31 @@ func TestVerifyRejectsGarbageHashes(t *testing.T) {
 		if VerifyPassword(hash, "anything") {
 			t.Errorf("VerifyPassword accepted the hash %q", hash)
 		}
+	}
+}
+
+func TestVerifyUnknownUser(t *testing.T) {
+	if VerifyUnknownUser("anything") || VerifyUnknownUser("") {
+		t.Error("VerifyUnknownUser must never succeed")
+	}
+
+	// It must cost about as much as a real check, or it does not hide anything.
+	hash, err := HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost, err := bcrypt.Cost([]byte(hash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownCost, err := bcrypt.Cost([]byte(unknownUserHash))
+	if err != nil {
+		t.Fatalf("the stand-in hash is not a bcrypt hash: %v", err)
+	}
+	if unknownCost != cost {
+		t.Errorf("stand-in hash has cost %d, real hashes have %d", unknownCost, cost)
+	}
+	if VerifyPassword(unknownUserHash, "correct horse battery") {
+		t.Error("the stand-in hash matched a password")
 	}
 }

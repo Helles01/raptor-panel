@@ -59,6 +59,24 @@ func (l *Limiter) Allow(key string) (allowed bool, retryAfter time.Duration) {
 }
 
 // makeRoom keeps the table bounded: it drops expired windows and, if the table is still full, an arbitrary tenth of it.
+// Blocked reports whether key has already failed limit times in the current window and for how much longer it stays blocked.
+// It counts nothing. With Fail it limits an endpoint where only the failures should count, such as a sign-in: a client with
+// many successful sessions is not slowed down. A Limiter is used with Allow, or with Blocked and Fail, not with both.
+func (l *Limiter) Blocked(key string) (blocked bool, retryAfter time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := l.now()
+	w, ok := l.hits[key]
+	if !ok || now.Sub(w.start) >= l.window || w.count < l.limit {
+		return false, 0
+	}
+	return true, w.start.Add(l.window).Sub(now)
+}
+
+// Fail counts one failure for key.
+func (l *Limiter) Fail(key string) { l.Allow(key) }
+
 func (l *Limiter) makeRoom(now time.Time) {
 	if len(l.hits) < l.maxKeys {
 		return

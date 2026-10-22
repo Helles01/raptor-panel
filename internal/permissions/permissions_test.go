@@ -211,3 +211,36 @@ func TestMatchesTheReference(t *testing.T) {
 		t.Errorf("permissions differ from the reference:\n mine      %v\n reference %v", mine, fromReference)
 	}
 }
+
+func TestEffective(t *testing.T) {
+	stored := []string{"file.sftp", "websocket.connect"}
+	tests := []struct {
+		name  string
+		admin bool
+		owner bool
+		sub   []string
+		want  []string
+	}{
+		{"an administrator", true, false, nil, []string{"*", "admin.websocket.errors", "admin.websocket.install", "admin.websocket.transfer"}},
+		{"an administrator who owns the server", true, true, stored, []string{"*", "admin.websocket.errors", "admin.websocket.install", "admin.websocket.transfer"}},
+		{"the owner", false, true, nil, []string{"*"}},
+		{"the owner, whatever is stored", false, true, stored, []string{"*"}},
+		{"a subuser", false, false, stored, stored},
+		{"a user with no access", false, false, nil, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Effective(tt.admin, tt.owner, tt.sub)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Effective = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// The result is a copy: changing it must not change what is stored.
+	got := Effective(false, false, stored)
+	got[0] = "backup.delete"
+	if stored[0] != "file.sftp" {
+		t.Error("Effective returned the stored slice itself")
+	}
+}

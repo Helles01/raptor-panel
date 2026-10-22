@@ -23,7 +23,9 @@ allowed. Everything the reference leaves to the node is still left to the node.
 ## Deliberate differences (`docs/compat.md`: C-030)
 Input checks the reference does not have, and a download link that does not decode the path twice.
 
-## Open question for the project owner (not changed)
+## Decision of the project owner (2026-10-22): keep the reference's table for now
+The project owner decided to leave this as it is for the time being; it can be revisited (it would change one table entry and
+add a check in the write handler).
 In the reference, **saving a file needs `file.create`**, not `file.update` (`WriteFileContentRequest`), and decompressing needs
 `file.create` too. The frontend shows the save button of an existing file only with `file.update`. So:
 - a subuser with `file.create` but not `file.update` can **overwrite existing files** through the API, although the interface

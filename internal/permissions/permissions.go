@@ -66,6 +66,25 @@ const (
 // Wildcard is held by server owners and administrators: every permission except the admin.* ones.
 const Wildcard = "*"
 
+// The permissions only administrators hold, for the live feed of a server's install and transfer output and of daemon errors.
+const (
+	AdminWebsocketErrors   = "admin.websocket.errors"
+	AdminWebsocketInstall  = "admin.websocket.install"
+	AdminWebsocketTransfer = "admin.websocket.transfer"
+)
+
+// Effective is the permission list of a user on a server: administrators hold everything and the admin.* permissions, the
+// owner everything, anyone else the permissions stored for their subuser entry (none without one).
+func Effective(admin, owner bool, subuser []string) []string {
+	switch {
+	case admin:
+		return []string{Wildcard, AdminWebsocketErrors, AdminWebsocketInstall, AdminWebsocketTransfer}
+	case owner:
+		return []string{Wildcard}
+	}
+	return append([]string{}, subuser...)
+}
+
 // Key is one permission of a group.
 type Key struct {
 	Name        string
