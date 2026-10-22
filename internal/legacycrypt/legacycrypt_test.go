@@ -66,7 +66,7 @@ func TestDecrypt(t *testing.T) {
 	}{
 		{"serialized string (encrypt)", key32, encryptRaw(t, key32, serialize(token), false), token},
 		{"raw string (encryptString)", key32, encryptRaw(t, key32, []byte(token), false), token},
-		{"unicode is measured in bytes", key32, encryptRaw(t, key32, serialize("jelszó-ű"), false), "jelszó-ű"},
+		{"unicode is measured in bytes", key32, encryptRaw(t, key32, serialize("pässwörd-ß"), false), "pässwörd-ß"},
 		{"empty serialized string", key32, encryptRaw(t, key32, serialize(""), false), ""},
 		{"escaped slashes in the JSON", key32, encryptRaw(t, key32, serialize(token), true), token},
 		{"AES-128 key", key16, encryptRaw(t, key16, serialize(token), false), token},

@@ -93,7 +93,7 @@ func TestValidateLocation(t *testing.T) {
 	}{
 		{"short only", "eu-west", "", false},
 		{"both", "us", "United States, East", false},
-		{"unicode", "Győr", "Magyarország", false},
+		{"unicode", "Zürich", "Schweiz, Zürich", false},
 		{"empty short", "", "x", true},
 		{"short too long", strings.Repeat("a", 61), "", true},
 		{"short at the limit", strings.Repeat("a", 60), "", false},

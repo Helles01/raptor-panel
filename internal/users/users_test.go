@@ -61,7 +61,7 @@ func TestValidate(t *testing.T) {
 	}{
 		{"valid", func(*Input) {}, ""},
 		{"language set", func(in *Input) { in.Language = "en" }, ""},
-		{"unicode names", func(in *Input) { in.FirstName, in.LastName = "Ádám", "Kovács-Nagy" }, ""},
+		{"unicode names", func(in *Input) { in.FirstName, in.LastName = "Zoë", "Núñez-Åberg" }, ""},
 		{"username with dots dashes underscores", func(in *Input) { in.Username = "a.b-c_d" }, ""},
 		{"uppercase username", func(in *Input) { in.Username = "Admin01" }, ""},
 		{"email with plus", func(in *Input) { in.Email = "ada+panel@example.co.uk" }, ""},

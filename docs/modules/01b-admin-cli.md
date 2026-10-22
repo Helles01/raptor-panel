@@ -1,30 +1,36 @@
-# M1b – Admin CLI (előrehozva)
+# M1b – Admin CLI (brought forward)
 
-Állapot: **részben kész** (2026-10-22). A parancsok mögötti domain-logika kész és tesztelt. Maguk a parancsok
-(`raptor user|apikey|location|node|nest|egg|settings`) és az adatbázis-adapterek a baseline sémára várnak, mert az
-adapterek sqlc-vel készülnek, a séma nélkül nem generálhatók. Üres vagy félig működő parancsokat szándékosan nem
-regisztráltam.
+Status: **partly done** (2026-10-22). The domain logic behind the commands is done and tested. The commands themselves
+(`raptor user|apikey|location|node|nest|egg|settings`) and the database adapters wait for the baseline schema, because
+the adapters are built with sqlc and cannot be generated without it. Empty or half-working commands were deliberately not
+registered.
 
-## Kész (tesztelt domain-logika)
-| Csomag | Tartalom |
+## Done (tested domain logic)
+| Package | Content |
 |---|---|
-| `internal/ids` | Véletlen alfanumerikus token (a referencia `Str::random` ábécéje, torzításmentes bájtleképezéssel) és UUIDv4. |
-| `internal/auth` | `HashPassword` (bcrypt, `$2a$10$`, max. 72 bájt) és `VerifyPassword` (a PHP `$2y$` előtagot normalizálja, a 72. bájt utánit figyelmen kívül hagyja, ahogy a PHP). API kulcs: `NewAPIKey` (`ptlc_`/`ptla_` + 16 karakteres azonosító, 32 karakteres titok), `SplitKey`, `Access` (0 nincs, 1 olvasás, 3 olvasás+írás, az `r_*` oszlopok bitjei), `ParseResourceAccess` (`servers=rw`). |
-| `internal/users` | Új felhasználó validációja a referencia szabályai szerint (e-mail, felhasználónév regex, névhossz, nyelv) és `Prepare`: UUID és jelszó-hash. |
-| `internal/nodes` | `ValidateLocation`, `NewNode` validáció (név, FQDN, séma, memória, lemez, portok, `daemonBase`), `NewCredentials` (16 karakteres token ID, 64 karakteres token), `WingsConfig`: a Wings `config.yml` kulcsról kulcsra a referencia `Node::getConfiguration()`-je szerint. |
-| `internal/eggs` | PTDL_v1 és PTDL_v2 egg-fájl beolvasása és validálása, a Docker image-ek fájl szerinti sorrendjével. **A referencia mind a 14 hivatalos eggjét elfogadja** (teszt a `reference/database/Seeders/eggs` fájlokon). |
-| `internal/settings` | A módosítható beállítások allow-listája és értékellenőrzése (`settings::` kulcselőtag), titkok nélkül. |
+| `internal/ids` | Random alphanumeric tokens (the alphabet of the reference's `Str::random`, with bias-free byte mapping) and UUIDv4. |
+| `internal/auth` | `HashPassword` (bcrypt, `$2a$10$`, at most 72 bytes) and `VerifyPassword` (normalises the PHP `$2y$` prefix, ignores everything after the 72nd byte, as PHP does). API keys: `NewAPIKey` (`ptlc_`/`ptla_` + a 16 character identifier, a 32 character secret), `SplitKey`, `Access` (0 none, 1 read, 3 read+write, the bits of the `r_*` columns), `ParseResourceAccess` (`servers=rw`). |
+| `internal/users` | Validation of a new user by the reference's rules (e-mail, username regex, name length, language) and `Prepare`: UUID and password hash. |
+| `internal/nodes` | `ValidateLocation`, `NewNode` validation (name, FQDN, scheme, memory, disk, ports, `daemonBase`), `NewCredentials` (a 16 character token ID, a 64 character token), `WingsConfig`: the Wings `config.yml`, key by key as the reference's `Node::getConfiguration()`. |
+| `internal/eggs` | Reading and validating PTDL_v1 and PTDL_v2 egg files, keeping the file order of the Docker images. **It accepts all 14 official eggs of the reference** (a test over the `reference/database/Seeders/eggs` files). |
+| `internal/settings` | The allow-list of changeable settings and their value checks (`settings::` key prefix), without secrets. |
 
-## Hátra
-1. A baseline séma (`docs/schema/`), abból sqlc lekérdezések és adapterek: users, api_keys, locations, nodes, nests, eggs, egg_variables, settings.
-2. A CLI parancsok bekötése. A jelszót nem kapcsolóból, hanem `--password-stdin`-ből vagy terminálból kérjük be (ehhez kell az `x/term`); az API kulcs és a node token **egyszer** jelenik meg, a `raptor_secrets` táblába kerül.
-3. Az `egg_variables` tábla oszlopai: a referencia importere a fájl `field_type` mezőjét is átadja, de a migrációk között nem találtam `field_type` oszlopot; a dump mutatja meg, mit kell menteni.
+## Left
+1. The baseline schema (`docs/schema/`), and from it the sqlc queries and adapters: users, api_keys, locations, nodes,
+   nests, eggs, egg_variables, settings.
+2. Wiring the CLI commands. The password is not taken from a flag but from `--password-stdin` or the terminal (this needs
+   `x/term`); an API key and a node token are shown **once** and are stored in the `raptor_secrets` table.
+3. The columns of the `egg_variables` table: the reference importer also passes the file's `field_type` field, but no
+   `field_type` column was found among the migrations; the dump will show what has to be saved.
 
-## Szándékos eltérések a referenciától (`docs/compat.md`: C-004, C-007–C-009)
-- Nincs admin UI, a CLI pótolja (C-004).
-- Az egg import nem tölt le URL-ről, és nem fogad el image nélküli egget (a referencia a PTDL_v1 konverziónál `nil` nevű képet ír) (C-007).
-- Új jelszó: legalább 8 karakter és legfeljebb 72 bájt (a referencia admin felülete nem korlátoz, a PHP pedig némán levágja a 72. bájt után) (C-008).
-- Node: a `daemonBase` nem tartalmazhat `..` szakaszt, az FQDN-t csak formailag ellenőrizzük, DNS-feloldás nélkül (C-009).
+## Deliberate differences from the reference (`docs/compat.md`: C-004, C-007–C-009)
+- No admin UI, the CLI replaces it (C-004).
+- The egg import does not download from a URL, and does not accept an egg without an image (the reference writes an image
+  named `nil` in its PTDL_v1 conversion) (C-007).
+- A new password: at least 8 characters and at most 72 bytes (the reference admin UI does not restrict, and PHP silently
+  truncates after the 72nd byte) (C-008).
+- Node: `daemonBase` must not contain a `..` segment, and the FQDN is checked for format only, without DNS resolution
+  (C-009).
 
-## Ellenőrzés
-`scripts/check.sh` zöld.
+## Verification
+`scripts/check.sh` is green.

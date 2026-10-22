@@ -57,12 +57,12 @@ func TestVerifyAcceptsPHPHashes(t *testing.T) {
 	}
 
 	// A hash made here, relabelled the way PHP writes it.
-	own, err := HashPassword("jelszó-ű-ő")
+	own, err := HashPassword("pässwörd-ß-€")
 	if err != nil {
 		t.Fatal(err)
 	}
 	php := "$2y$" + strings.TrimPrefix(own, "$2a$")
-	if !VerifyPassword(php, "jelszó-ű-ő") {
+	if !VerifyPassword(php, "pässwörd-ß-€") {
 		t.Error("a hash relabelled to $2y$ does not verify")
 	}
 }

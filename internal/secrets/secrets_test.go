@@ -26,7 +26,7 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	}{
 		{"token", "5FtsW0o1pXqzhg8oN2pRFPCcb3J1OZ1Bk8vmzoo84bTBnvwk"},
 		{"empty", ""},
-		{"unicode", "jelszó-ű-ő-🔑"},
+		{"unicode", "pässwörd-ß-€-🔑"},
 		{"looks like serialized php", `s:3:"abc";`},
 	}
 	for _, tt := range tests {
