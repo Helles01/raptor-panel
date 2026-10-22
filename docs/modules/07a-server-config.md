@@ -13,7 +13,7 @@ for the schema, because they load the server, its egg, allocations, variables an
 | `All()`, `Names()`, `Valid()` | The tree of 40 subuser permissions with the reference's descriptions, in the reference's order. `json.Marshal(All())` is the body of `GET /api/client/permissions` (an object keyed by group, order kept, which the frontend lists as is). |
 | `Normalize()` | What is stored for a subuser: known permissions only, no duplicates, order kept, and `websocket.connect` always added (as the reference's `getDefaultPermissions`). |
 | `Has()` | Permission check with the wildcard: `*` covers everything except `admin.*` names (as Wings). |
-| `CanAssign()` | The subset rule: someone may give a subuser only permissions they hold themselves, and only assignable ones. `*` and `admin.*` are never assignable. |
+| `CanAssign()` | The subset rule, in the reference's order: someone may give a subuser only permissions they hold themselves (an unknown name is refused too). Owners and administrators hold `*` and may ask for anything; `Normalize` then drops what cannot be assigned, so `*` and `admin.*` are never stored. |
 | constants | One name per permission; `internal/wings` takes the permissions of its token scopes from here. |
 
 A test compares the names with `reference/app/Models/Permission.php` (40 constants each).
@@ -46,7 +46,6 @@ first appearance and the value of its last, as PHP does.
 ## Still to do (waits for the schema)
 - The database layer that fills `servers.Server` (one query set per server: egg with its parent, variables with the server
   values, allocations on the node, mounts), and the `/api/remote` handlers with the node scope enforced structurally (plan 10.1).
-- Subuser endpoints (M10): the handlers use `Normalize` and `CanAssign`; the "no self-edit" rule and the revocation of
-  tokens through the outbox are handler and outbox work.
-- Cron next-run semantics for schedules (the day-of-month / day-of-week rule of the cron library) are not decided yet; the
-  library's source has to be checked first.
+- Subuser endpoints (M10): the rules are in `docs/modules/10a-subusers.md`; the handlers and the revocation of tokens
+  through the outbox are still to do.
+- Cron next-run semantics are in `docs/modules/12a-schedules.md`.

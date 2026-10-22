@@ -172,10 +172,16 @@ func TestCanAssign(t *testing.T) {
 		{"nothing", subuser, nil, true},
 		{"more than held", subuser, []string{"file.read", "backup.delete"}, false},
 		{"owner may assign anything assignable", []string{"*"}, Names(), true},
-		{"owner may not assign what does not exist", []string{"*"}, []string{"file.read", "root.access"}, false},
-		{"nobody assigns admin permissions", []string{"*", "admin.websocket.errors"}, []string{"admin.websocket.errors"}, false},
-		{"wildcard itself is not assignable", []string{"*"}, []string{"*"}, false},
+		// An owner's request is not refused for odd names: Normalize drops them (see TestNormalize).
+		{"owner asking for names that do not exist", []string{"*"}, []string{"file.read", "root.access"}, true},
+		{"owner asking for the wildcard", []string{"*"}, []string{"*"}, true},
+		// The wildcard does not cover admin.* in Has, but an owner's request is not refused for it either.
+		{"owner asking for an admin permission", []string{"*"}, []string{"admin.websocket.errors"}, true},
+		{"subuser asking for a name that does not exist", subuser, []string{"file.read", "root.access"}, false},
+		{"subuser asking for the wildcard", subuser, []string{"*"}, false},
+		{"subuser asking for an admin permission", subuser, []string{"admin.websocket.errors"}, false},
 		{"empty held", nil, []string{"file.read"}, false},
+		{"empty held, nothing asked", nil, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

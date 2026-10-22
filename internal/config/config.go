@@ -16,6 +16,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+	// The time zone database is built in, so a panel in a minimal container still knows its zone.
+	_ "time/tzdata"
 
 	"go.yaml.in/yaml/v3"
 
@@ -37,6 +40,9 @@ type App struct {
 	// panel gives to Wings, the "remote" of the Wings configuration, and the only origin allowed to send
 	// state-changing browser requests.
 	URL string `yaml:"url"`
+	// Timezone is the IANA name of the time zone the panel's schedules run in, for example Europe/Berlin (the reference's
+	// APP_TIMEZONE). The default is UTC, which is recommended: a clock change makes a local hour vanish or repeat.
+	Timezone string `yaml:"timezone"`
 }
 
 // Wings configures how the panel talks to the node daemons.
@@ -76,14 +82,16 @@ type Secrets struct {
 }
 
 var (
-	hostPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,255}$`)
-	namePattern = regexp.MustCompile(`^[A-Za-z0-9_$.-]{1,64}$`)
+	hostPattern     = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,255}$`)
+	namePattern     = regexp.MustCompile(`^[A-Za-z0-9_$.-]{1,64}$`)
+	timezonePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$`)
 )
 
 // Load reads the file at path (or at $RAPTOR_CONFIG when path is empty; no file is read when both are empty), then
 // applies the RAPTOR_* environment variables. It does not validate: commands validate the parts they need.
 func Load(path string, getenv func(string) string) (Config, error) {
 	cfg := Config{
+		App:   App{Timezone: "UTC"},
 		DB:    DB{Host: "127.0.0.1", Port: 3306, TLS: "false"},
 		HTTP:  HTTP{Listen: "127.0.0.1:8080"},
 		Wings: Wings{TimeoutSeconds: 15, ConnectTimeoutSeconds: 5},
@@ -132,6 +140,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	override(&cfg.Secrets.Key, "RAPTOR_SECRET_KEY")
 	override(&cfg.HTTP.Listen, "RAPTOR_HTTP_LISTEN")
 	override(&cfg.App.URL, "RAPTOR_APP_URL")
+	override(&cfg.App.Timezone, "RAPTOR_APP_TIMEZONE")
 	if v := getenv("RAPTOR_WINGS_INSECURE_TLS"); v != "" {
 		insecure, err := strconv.ParseBool(v)
 		if err != nil {
@@ -180,7 +189,8 @@ func (d DB) Validate() error {
 	}
 }
 
-// Validate checks the public URL: http or https, a host, and nothing else (no credentials, path, query or fragment).
+// Validate checks the public URL: http or https, a host, and nothing else (no credentials, path, query or fragment). It
+// also checks the time zone.
 func (a App) Validate() error {
 	u, err := url.Parse(a.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
@@ -189,7 +199,24 @@ func (a App) Validate() error {
 	if u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 		return errors.New("app.url must not have credentials, a path, a query or a fragment")
 	}
-	return nil
+	_, err = a.Location()
+	return err
+}
+
+// Location returns the time zone of the panel. An empty setting is UTC. The names are IANA names; "Local", which would
+// depend on the machine the panel runs on, is not accepted.
+func (a App) Location() (*time.Location, error) {
+	if a.Timezone == "" {
+		return time.UTC, nil
+	}
+	if !timezonePattern.MatchString(a.Timezone) || a.Timezone == "Local" {
+		return nil, errors.New("app.timezone must be an IANA time zone name such as UTC or Europe/Berlin")
+	}
+	loc, err := time.LoadLocation(a.Timezone)
+	if err != nil {
+		return nil, errors.New("app.timezone is not a known time zone: " + a.Timezone)
+	}
+	return loc, nil
 }
 
 // Origin returns the URL in the form browsers send in the Origin header: scheme and host without a trailing slash.

@@ -7,7 +7,7 @@ instance.
 ## Done
 | Package | Content |
 |---|---|
-| `internal/config` | A YAML file (optional, `--config` or `RAPTOR_CONFIG`) and `RAPTOR_*` environment variables; the environment overrides. An unknown field is an error. Allow-list validation (host, port, name, user, TLS mode). Neither the password nor the key appears in `%v`, `%+v`, `%#v` or `slog` output (guarded by a test). |
+| `internal/config` | A YAML file (optional, `--config` or `RAPTOR_CONFIG`) and `RAPTOR_*` environment variables; the environment overrides. An unknown field is an error. Allow-list validation (host, port, name, user, TLS mode). Neither the password nor the key appears in `%v`, `%+v`, `%#v` or `slog` output (guarded by a test). Later additions: `app.url` (M6, M3), the `wings` section (M6), and `app.timezone` / `RAPTOR_APP_TIMEZONE` (M12: an IANA name, default UTC, the zone database is built into the binary, `App.Location()`; `Local` is refused because it depends on the machine). |
 | `internal/secrets` | Raptor's secret format: AES-256-GCM, `rp1:` prefix, a secret is bound to its location (`raptor_secrets\|table\|row\|column` as AAD), so it cannot be swapped between rows. A failure of `Open` does not reveal a reason. |
 | `internal/legacycrypt` | **Decryption only** of the reference's format (Laravel `Crypt`): AES-CBC + HMAC-SHA256 (over `iv+value`), unwrapping a PHP-serialized string, `APP_KEY` (also with the `base64:` prefix). The MAC is checked before anything else is parsed; every failure is the same `ErrDecrypt`. |
 | `internal/legacycrypt/legacycrypttest` | For tests only: producing the Laravel format. Production code must not import it. |

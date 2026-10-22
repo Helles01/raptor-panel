@@ -5,6 +5,7 @@ package permissions
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -236,10 +237,14 @@ func Has(held []string, wanted string) bool {
 }
 
 // CanAssign reports whether someone holding held may give a subuser the permissions in requested: only ones they hold
-// themselves. Whoever holds the wildcard (owners and administrators) may assign any assignable permission.
+// themselves, so a name that does not exist is refused too. Whoever holds the wildcard (owners and administrators) may
+// ask for anything; what cannot be assigned is then dropped by Normalize, which is the order the reference works in.
 func CanAssign(held, requested []string) bool {
+	if slices.Contains(held, Wildcard) {
+		return true
+	}
 	for _, p := range requested {
-		if !Valid(p) || !Has(held, p) {
+		if !Has(held, p) {
 			return false
 		}
 	}

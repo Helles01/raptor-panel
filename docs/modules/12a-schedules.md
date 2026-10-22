@@ -53,9 +53,10 @@ an earlier place shifts the later tasks by one).
 ## Still to do
 - **The audit** (M17): parse every stored schedule with `Parse` and list the ones that fail, before cutover, so none stops
   running unnoticed. A schedule that does not parse must not be silently dropped or run at a guessed time.
-- The panel's time zone: the reference computes next runs in `app.timezone` (default UTC). Raptor needs the same setting
-  (a `app.timezone` configuration value, an IANA name), and `Next` must be called with a time in that location. UTC is
-  recommended: a clock change makes a local hour vanish or repeat (see the tests for what Raptor does then).
+- The panel's time zone: the reference computes next runs in its configured zone (default UTC). The setting now exists
+  (`app.timezone`, `RAPTOR_APP_TIMEZONE`, `config.App.Location()`); the scheduler and the handlers must call `Next` with a
+  time in that location (`now.In(loc)`). UTC is recommended: a clock change makes a local hour vanish or repeat (the tests
+  show what Raptor does then).
 - Handlers and the scheduler: the schedule and task limits (`DefaultTaskLimit`, configurable), "a backup task cannot be
   created when the server's backup limit is 0", `only_when_online`, `continue_on_failure`, the `is_processing` lock so
   a schedule never runs twice at once, the activity log entries, and the per-task permission check on create and update
