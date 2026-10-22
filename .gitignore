@@ -38,3 +38,7 @@ node_modules/
 CLAUDE.MD
 
 h
+
+# Frontend build output (web/)
+/web/public/assets/*
+!/web/public/assets/.gitkeep

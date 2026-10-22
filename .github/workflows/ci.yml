@@ -20,3 +20,18 @@ jobs:
           . ./versions.env
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
       - run: scripts/check.sh
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the pinned versions
+        run: |
+          . ./versions.env
+          echo "NODE_VERSION=${NODE_VERSION}" >> "$GITHUB_ENV"
+          echo "YARN_VERSION=${YARN_VERSION}" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --global "yarn@${YARN_VERSION}"
+      - run: scripts/frontend-check.sh
