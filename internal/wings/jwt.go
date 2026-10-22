@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Helles01/raptor-panel/internal/ids"
+	"github.com/Helles01/raptor-panel/internal/permissions"
 )
 
 // Scope says what a token may be used for. Wings reads it from the "scope" claim, and since Wings 1.12.2 refuses a
@@ -32,10 +33,10 @@ const (
 // The subuser permission a user needs for each scope. The issuing functions check it, so a token cannot be made for
 // something its user could not do through the panel.
 const (
-	PermissionWebsocket      = "websocket.connect"
-	PermissionFileUpload     = "file.create"
-	PermissionFileDownload   = "file.read-content"
-	PermissionBackupDownload = "backup.download"
+	PermissionWebsocket      = permissions.WebsocketConnect
+	PermissionFileUpload     = permissions.FileCreate
+	PermissionFileDownload   = permissions.FileReadContent
+	PermissionBackupDownload = permissions.BackupDownload
 )
 
 // Lifetimes of the tokens, as in the reference: short, because Wings cannot revoke a signed URL before it expires.
