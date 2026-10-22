@@ -85,8 +85,5 @@ type Egg struct {
 	ConfigStop    string
 }
 
-// Server states the builders care about.
-const statusSuspended = "suspended"
-
 // Suspended reports whether the server is suspended.
-func (s Server) Suspended() bool { return s.Status == statusSuspended }
+func (s Server) Suspended() bool { return s.Status == StatusSuspended }
