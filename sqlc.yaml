@@ -1,0 +1,12 @@
+version: "2"
+sql:
+  - engine: "mysql"
+    # Raptor's own additive migrations. The baseline of the reference panel's tables is added here once
+    # docs/schema/ has been turned into internal/db/schema/.
+    schema: "internal/db/migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "dbq"
+        out: "internal/db/dbq"
+        emit_interface: true
