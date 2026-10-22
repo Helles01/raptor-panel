@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -23,9 +24,29 @@ import (
 
 // Config is the process configuration.
 type Config struct {
+	App     App     `yaml:"app"`
 	DB      DB      `yaml:"db"`
 	Secrets Secrets `yaml:"secrets"`
 	HTTP    HTTP    `yaml:"http"`
+	Wings   Wings   `yaml:"wings"`
+}
+
+// App holds what identifies this panel to the outside.
+type App struct {
+	// URL is the public address of the panel, for example https://panel.example.com. It is the issuer of the tokens the
+	// panel gives to Wings, the "remote" of the Wings configuration, and the only origin allowed to send
+	// state-changing browser requests.
+	URL string `yaml:"url"`
+}
+
+// Wings configures how the panel talks to the node daemons.
+type Wings struct {
+	// TimeoutSeconds is the longest a request to a node may take (the reference's GUZZLE_TIMEOUT, 15).
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// ConnectTimeoutSeconds is the longest connecting to a node may take (GUZZLE_CONNECT_TIMEOUT, 5).
+	ConnectTimeoutSeconds int `yaml:"connect_timeout_seconds"`
+	// InsecureTLS turns off the check of the nodes' TLS certificates. Only for development with self-signed certificates.
+	InsecureTLS bool `yaml:"insecure_tls"`
 }
 
 // HTTP configures the web server.
@@ -63,8 +84,9 @@ var (
 // applies the RAPTOR_* environment variables. It does not validate: commands validate the parts they need.
 func Load(path string, getenv func(string) string) (Config, error) {
 	cfg := Config{
-		DB:   DB{Host: "127.0.0.1", Port: 3306, TLS: "false"},
-		HTTP: HTTP{Listen: "127.0.0.1:8080"},
+		DB:    DB{Host: "127.0.0.1", Port: 3306, TLS: "false"},
+		HTTP:  HTTP{Listen: "127.0.0.1:8080"},
+		Wings: Wings{TimeoutSeconds: 15, ConnectTimeoutSeconds: 5},
 	}
 
 	if path == "" {
@@ -109,6 +131,14 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	override(&cfg.DB.TLS, "RAPTOR_DB_TLS")
 	override(&cfg.Secrets.Key, "RAPTOR_SECRET_KEY")
 	override(&cfg.HTTP.Listen, "RAPTOR_HTTP_LISTEN")
+	override(&cfg.App.URL, "RAPTOR_APP_URL")
+	if v := getenv("RAPTOR_WINGS_INSECURE_TLS"); v != "" {
+		insecure, err := strconv.ParseBool(v)
+		if err != nil {
+			return errors.New("RAPTOR_WINGS_INSECURE_TLS must be true or false")
+		}
+		cfg.Wings.InsecureTLS = insecure
+	}
 
 	if v := getenv("RAPTOR_TRUSTED_PROXIES"); v != "" {
 		cfg.HTTP.TrustedProxies = nil
@@ -148,6 +178,35 @@ func (d DB) Validate() error {
 	default:
 		return errors.New(`db.tls must be one of "false", "true", "skip-verify", "preferred"`)
 	}
+}
+
+// Validate checks the public URL: http or https, a host, and nothing else (no credentials, path, query or fragment).
+func (a App) Validate() error {
+	u, err := url.Parse(a.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return errors.New("app.url must be an http(s) address such as https://panel.example.com")
+	}
+	if u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("app.url must not have credentials, a path, a query or a fragment")
+	}
+	return nil
+}
+
+// Origin returns the URL in the form browsers send in the Origin header: scheme and host without a trailing slash.
+func (a App) Origin() string {
+	u, err := url.Parse(a.URL)
+	if err != nil {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// Validate checks the timeouts.
+func (w Wings) Validate() error {
+	if w.TimeoutSeconds < 1 || w.TimeoutSeconds > 300 || w.ConnectTimeoutSeconds < 1 || w.ConnectTimeoutSeconds > w.TimeoutSeconds {
+		return errors.New("wings.timeout_seconds must be 1-300 and wings.connect_timeout_seconds between 1 and the timeout")
+	}
+	return nil
 }
 
 // Validate checks the listen address and the trusted proxy list.

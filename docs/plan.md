@@ -1,6 +1,6 @@
 # Raptor Panel – implementation plan
 
-Status: **version 3, approved (2026-10-22).** M0, M2 and M3b are done, the schema-independent groundwork of M3 too; M1 and M1b are partly done (the schema-independent
+Status: **version 3, approved (2026-10-22).** M0, M2 and M3b are done, the schema-independent groundwork of M3 and M6 too; M1 and M1b are partly done (the schema-independent
 parts), see `docs/modules/`. M2 and M3b were done before M1/M1b were finished because they do not need the database
 schema. The plan is based on the actual contents of the `reference/` folder; the route counts come from
 `reference/routes/*.php`.
