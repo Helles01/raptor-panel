@@ -6,12 +6,12 @@ package sftp
 import (
 	"errors"
 	"fmt"
-	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Helles01/raptor-panel/internal/auth/lockout"
 	"github.com/Helles01/raptor-panel/internal/permissions"
 	"github.com/Helles01/raptor-panel/internal/servers"
 	"github.com/Helles01/raptor-panel/internal/sshkeys"
@@ -95,11 +95,7 @@ func ParseUsername(value string) (Login, error) {
 }
 
 // Throttle is one counter that limits failed sign-ins: at most Limit failures per Window for Key.
-type Throttle struct {
-	Key    string
-	Limit  int
-	Window time.Duration
-}
+type Throttle = lockout.Counter
 
 // Throttles are the counters a sign-in attempt is checked against, and counted in when it fails. The reference has one
 // counter per server and per address of the request, but the request comes from the node, so that address is the node's
@@ -107,31 +103,12 @@ type Throttle struct {
 // address, and a user is also limited across all addresses, so that guessing from many addresses does not escape.
 func Throttles(username, clientAddr string, nodeID uint64) []Throttle {
 	user := strings.ToLower(username)
-	client := clientKey(clientAddr, nodeID)
+	client := lockout.Client(clientAddr, "node-"+strconv.FormatUint(nodeID, 10))
 	return []Throttle{
 		{Key: "sftp|user-client|" + user + "|" + client, Limit: 5, Window: time.Minute},
 		{Key: "sftp|user|" + user, Limit: 30, Window: 10 * time.Minute},
 		{Key: "sftp|client|" + client, Limit: 60, Window: 10 * time.Minute},
 	}
-}
-
-// clientKey names the client in a counter: its address without the port, and for IPv6 only the /64 network, since one
-// subscriber usually holds a whole /64. An address that cannot be read counts as the node itself.
-func clientKey(addr string, nodeID uint64) string {
-	ip, err := netip.ParseAddrPort(addr)
-	var a netip.Addr
-	if err == nil {
-		a = ip.Addr()
-	} else if a, err = netip.ParseAddr(addr); err != nil {
-		return "node-" + strconv.FormatUint(nodeID, 10)
-	}
-
-	a = a.Unmap()
-	if a.Is6() {
-		p, _ := a.Prefix(64)
-		return p.String()
-	}
-	return a.String()
 }
 
 // KeyOutcome is what became of a public key a client offered.

@@ -297,3 +297,95 @@ func TestLongUserAgentsAreTruncated(t *testing.T) {
 		t.Errorf("user agent length = %d, want 255 (the width of the column)", len(s.UserAgent))
 	}
 }
+
+func TestFailConfirmationCancelsTheLoginAfterTheLimit(t *testing.T) {
+	m, _, _ := newTestManager(t, true)
+	s, _ := m.Create(ctx, "", "")
+	token, err := m.StartConfirmation(s, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 1; i < MaxConfirmationFailures; i++ {
+		if !m.FailConfirmation(s) {
+			t.Fatalf("the login was cancelled after %d failures, want %d", i, MaxConfirmationFailures)
+		}
+		if user, ok := m.CheckConfirmation(s, token); !ok || user != 42 {
+			t.Fatalf("the right token stopped working after %d failures", i)
+		}
+	}
+
+	if m.FailConfirmation(s) {
+		t.Error("the login is still pending after the last allowed failure")
+	}
+	if s.Confirmation != nil {
+		t.Error("the confirmation was not removed")
+	}
+	if _, ok := m.CheckConfirmation(s, token); ok {
+		t.Error("the right token works after the login was cancelled")
+	}
+	if m.FailConfirmation(s) {
+		t.Error("a login that is not pending cannot be pending after another failure")
+	}
+}
+
+func TestACancelledConfirmationCannotBeRevivedByItsCounter(t *testing.T) {
+	// Even if the confirmation is still in the session, a counter at the limit refuses the token.
+	m, _, _ := newTestManager(t, true)
+	s, _ := m.Create(ctx, "", "")
+	token, _ := m.StartConfirmation(s, 42)
+	s.Confirmation.Failures = MaxConfirmationFailures
+	if _, ok := m.CheckConfirmation(s, token); ok {
+		t.Error("a confirmation at its failure limit accepted its token")
+	}
+}
+
+func TestConfirmationFailuresSurviveASave(t *testing.T) {
+	m, _, _ := newTestManager(t, true)
+	s, _ := m.Create(ctx, "", "")
+	m.StartConfirmation(s, 42)
+	m.FailConfirmation(s)
+	m.FailConfirmation(s)
+	if err := m.Save(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := m.Load(ctx, s.ID)
+	if err != nil || loaded.Confirmation == nil || loaded.Confirmation.Failures != 2 {
+		t.Fatalf("loaded = %+v, %v; the count of failures must be kept", loaded, err)
+	}
+}
+
+func TestConfirmationPending(t *testing.T) {
+	m, _, c := newTestManager(t, true)
+	s, _ := m.Create(ctx, "", "")
+	if m.ConfirmationPending(s) {
+		t.Error("a session with no login in progress is pending")
+	}
+
+	m.StartConfirmation(s, 42)
+	if !m.ConfirmationPending(s) {
+		t.Error("a login that was just started is not pending")
+	}
+	c.advance(ConfirmationLifetime + time.Second)
+	if m.ConfirmationPending(s) {
+		t.Error("an expired login is pending")
+	}
+
+	m.StartConfirmation(s, 42)
+	s.Confirmation.Failures = MaxConfirmationFailures
+	if m.ConfirmationPending(s) {
+		t.Error("a login at its failure limit is pending")
+	}
+	s.Confirmation = &Confirmation{UserID: 0, Token: "x", ExpiresAt: c.now().Add(time.Hour)}
+	if m.ConfirmationPending(s) {
+		t.Error("a login for no user is pending")
+	}
+}
+
+func TestConfirmationLimitIsFive(t *testing.T) {
+	// Five wrong codes cancel a pending login; the number is part of the sign-in policy and changes only on purpose.
+	if MaxConfirmationFailures != 5 {
+		t.Errorf("MaxConfirmationFailures = %d, want 5", MaxConfirmationFailures)
+	}
+}

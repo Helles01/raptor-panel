@@ -112,9 +112,9 @@ func keys(ts []Throttle) []string {
 func TestThrottles(t *testing.T) {
 	ts := Throttles("Jane", "203.0.113.9:51234", 7)
 	want := []Throttle{
-		{"sftp|user-client|jane|203.0.113.9", 5, time.Minute},
-		{"sftp|user|jane", 30, 10 * time.Minute},
-		{"sftp|client|203.0.113.9", 60, 10 * time.Minute},
+		{Key: "sftp|user-client|jane|203.0.113.9", Limit: 5, Window: time.Minute},
+		{Key: "sftp|user|jane", Limit: 30, Window: 10 * time.Minute},
+		{Key: "sftp|client|203.0.113.9", Limit: 60, Window: 10 * time.Minute},
 	}
 	if !reflect.DeepEqual(ts, want) {
 		t.Errorf("Throttles = %+v, want %+v", ts, want)

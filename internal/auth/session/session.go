@@ -34,6 +34,10 @@ const (
 	// ConfirmationLifetime is how long a login may wait for its second factor.
 	ConfirmationLifetime = 5 * time.Minute
 	confirmationLength   = 64
+	// MaxConfirmationFailures is how many wrong second factors a pending login takes before it is cancelled and the password has to
+	// be entered again, which the sign-in counters limit. The reference keeps the pending login for its five minutes however many
+	// codes are tried (C-039).
+	MaxConfirmationFailures = 5
 )
 
 // Session is a loaded session.
@@ -56,6 +60,8 @@ type Confirmation struct {
 	UserID    uint64
 	Token     string
 	ExpiresAt time.Time
+	// Failures counts the wrong second factors given for it.
+	Failures int
 }
 
 // Record is what a Store keeps. Its columns match the reference panel's sessions table: id (Key), user_id, ip_address,
@@ -249,13 +255,34 @@ func (m *Manager) StartConfirmation(s *Session, userID uint64) (string, error) {
 // token stops working after it expires, and a successful login replaces the session.
 func (m *Manager) CheckConfirmation(s *Session, token string) (userID uint64, ok bool) {
 	c := s.Confirmation
-	if c == nil || c.UserID == 0 || !m.now().Before(c.ExpiresAt) {
+	if c == nil || c.UserID == 0 || c.Failures >= MaxConfirmationFailures || !m.now().Before(c.ExpiresAt) {
 		return 0, false
 	}
 	if subtle.ConstantTimeCompare([]byte(c.Token), []byte(token)) != 1 {
 		return 0, false
 	}
 	return c.UserID, true
+}
+
+// ConfirmationPending reports whether the session holds a login that waits for its second factor and has neither expired nor used
+// up its failures. The caller uses it to tell an expired login from a wrong token.
+func (m *Manager) ConfirmationPending(s *Session) bool {
+	c := s.Confirmation
+	return c != nil && c.UserID != 0 && c.Failures < MaxConfirmationFailures && m.now().Before(c.ExpiresAt)
+}
+
+// FailConfirmation counts a wrong second factor against the pending login, and cancels the login after MaxConfirmationFailures. It
+// reports whether the login is still pending.
+func (m *Manager) FailConfirmation(s *Session) bool {
+	c := s.Confirmation
+	if c == nil {
+		return false
+	}
+	if c.Failures++; c.Failures >= MaxConfirmationFailures {
+		s.Confirmation = nil
+		return false
+	}
+	return true
 }
 
 func truncate(s string, n int) string {
