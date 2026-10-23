@@ -166,3 +166,11 @@ func DecodeJSON(r io.Reader, dst any, maxBytes int64) error {
 	}
 	return nil
 }
+
+// Bytes fails unless the value is between min and max bytes long, for a field whose limit is the size of what is passed on to
+// another program, such as a console command.
+func (v *Validator) Bytes(field, value string, min, max int) {
+	if n := len(value); n < min || n > max {
+		v.fail(field, "between", fmt.Sprintf("The %s must be between %d and %d bytes.", name(field), min, max))
+	}
+}

@@ -199,8 +199,8 @@ func TestDetails(t *testing.T) {
 		t.Error("an unusable reply was accepted")
 	} else {
 		var we *Error
-		if !errors.As(err, &we) || we.Status != 502 {
-			t.Errorf("error = %v, want a 502", err)
+		if !errors.As(err, &we) || we.Status != 502 || we.NodeStatus != 200 {
+			t.Errorf("error = %v, want a 502 over a 200 of the node", err)
 		}
 	}
 }
@@ -267,6 +267,10 @@ func TestErrorMapping(t *testing.T) {
 			if we.Status != tt.wantStatus || we.Unreachable {
 				t.Errorf("status %d unreachable %v, want %d", we.Status, we.Unreachable, tt.wantStatus)
 			}
+			// The status the node answered with is kept apart from the one the panel answers with: a redirect becomes a 502.
+			if we.NodeStatus != tt.status {
+				t.Errorf("NodeStatus = %d, want %d", we.NodeStatus, tt.status)
+			}
 			if !strings.Contains(we.Message, tt.wantContain) {
 				t.Errorf("message = %q, want it to contain %q", we.Message, tt.wantContain)
 			}
@@ -296,7 +300,7 @@ func TestUnreachableNode(t *testing.T) {
 	err := c.Power(context.Background(), serverUUID, "start")
 
 	var we *Error
-	if !errors.As(err, &we) || we.Status != 504 || !we.Unreachable ||
+	if !errors.As(err, &we) || we.Status != 504 || !we.Unreachable || we.NodeStatus != 0 ||
 		we.Message != "Could not establish a connection to the machine running this server. Please try again." {
 		t.Errorf("error = %#v", err)
 	}
@@ -412,7 +416,7 @@ func TestOversizedRepliesAreRefused(t *testing.T) {
 	_, err := newClient(t, f, ClientOptions{}).Details(context.Background(), serverUUID)
 
 	var we *Error
-	if !errors.As(err, &we) || we.Status != 502 {
+	if !errors.As(err, &we) || we.Status != 502 || we.NodeStatus != 200 {
 		t.Errorf("error = %v", err)
 	}
 }

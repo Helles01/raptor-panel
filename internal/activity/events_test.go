@@ -125,11 +125,18 @@ func TestEveryTextHasAnEvent(t *testing.T) {
 	}
 }
 
+// The power events and the command are written by the panel for a call of the API and by a node for the console of the browser. No
+// other event may be both, or a node could forge it.
 func TestPanelAndNodeEventsAreApart(t *testing.T) {
+	shared := []string{ServerPowerStart, ServerPowerStop, ServerPowerRestart, ServerPowerKill, ServerConsoleCommand}
+	var got []string
 	for _, e := range DaemonEvents() {
 		if slices.ContainsFunc(Specs, func(s Spec) bool { return s.Event == e }) {
-			t.Errorf("%s is both an event of the panel and one of the node: a node could then forge it", e)
+			got = append(got, e)
 		}
+	}
+	if !slices.Equal(got, shared) {
+		t.Errorf("events of both the panel and a node: %v, want exactly %v: a node could forge any other", got, shared)
 	}
 }
 

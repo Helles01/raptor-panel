@@ -1,9 +1,6 @@
 # M6 – Power and Wings client
 
-Status: **groundwork done** (2026-10-22): the Wings side of the module, which needs no database. The endpoints
-(`POST /power`, `/command`, `GET /resources`, `/websocket`, `/files/upload`, `/files/download`, the backup download)
-wait for the schema, because they look up the server, its node and the user's permissions. Both pieces are tested on
-their own, including the checks that guard against the known bugs.
+Status: **groundwork done** (2026-10-22): the Wings side of the module. **Handlers done over interfaces** (2026-10-23): `POST /power`, `POST /command`, `GET /resources`, `GET /websocket` in `internal/api/controlapi` (the file and backup transfer tokens belong to M15 and M13). The stores wait for the schema; both pieces are tested on their own, including the checks that guard against the known bugs.
 
 ## Done: `internal/wings`
 | File | Content |
@@ -45,9 +42,16 @@ the `jti` (SHA-256 of the user id and the server UUID), the user-facing error me
 `app.url` (`RAPTOR_APP_URL`: the issuer of the tokens, the Wings `remote`, the allowed browser origin) and the `wings`
 section (`timeout_seconds`, `connect_timeout_seconds`, `insecure_tls` / `RAPTOR_WINGS_INSECURE_TLS`).
 
-## Still to do in M6 (waits for the schema)
-- Resolve the node and the user's permissions for a server (M5), implement `wings.Subject` on that, and write the
-  handlers. The resources reply is cached for 20 seconds per server in the reference; add that in the handler.
-- Activity log entries for power actions and commands.
-- A real Wings (v1.13.4, WSL2) end-to-end run: the token contract above is checked against Wings' source, not yet against
-  a running daemon.
+## The handlers: `internal/api/controlapi` (docs/compat.md: C-056)
+| Route | Permission | What it does |
+|---|---|---|
+| `POST /power` | the permission of the signal in the body (start: `control.start`, stop and kill: `control.stop`, restart: `control.restart`), asked after reading the body and before validating it; a signal that is none needs everything | `{"signal"}` in start, stop, restart, kill; sends it to the node, then logs `server:power.<signal>` |
+| `POST /command` | `control.console` | `{"command"}` up to 4096 bytes, no NUL; a 502 of the node is "Server must be online in order to send commands."; logs `server:console.command` with the command |
+| `GET /resources` | any access | `stats` object (`current_state` defaults to `stopped`), kept 20 s per server (an error from the node is not kept) |
+| `GET /websocket` | `websocket.connect`, console state rules (an administrator may also open it while installing, restoring or being moved) | `{"data":{"token","socket"}}`; the token carries the caller's permissions and is signed for the node (the new node once a transfer has archived); 5 calls a minute per server, counted only for calls that passed the authorizer |
+
+A call the node refused or could not take writes no entry. Errors of the node keep its status and the reference's text (`DaemonConnectionException`); a node set up wrongly is a 500 without details. `wings.Error.NodeStatus` tells the status the node answered with from the one the panel makes up.
+
+## Still to do in M6
+- The stores: the node of a server with its token opened (`Targets`), the activity writer (`ActivityLog`). The rate limit of the client API is a wiring matter.
+- A real Wings (v1.13.4, WSL2) end-to-end run: the token contract above is checked against Wings' source, not yet against a running daemon.

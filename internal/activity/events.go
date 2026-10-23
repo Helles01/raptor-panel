@@ -34,6 +34,14 @@ const (
 
 	ServerReinstall = "server:reinstall"
 
+	// The power and console events are written by both sides: by the panel for a call of the API, by a node for what is done in the
+	// console of the browser (they are in DaemonEvents too, and are the only ones that are).
+	ServerPowerStart     = "server:power.start"
+	ServerPowerStop      = "server:power.stop"
+	ServerPowerRestart   = "server:power.restart"
+	ServerPowerKill      = "server:power.kill"
+	ServerConsoleCommand = "server:console.command"
+
 	ServerBackupStart           = "server:backup.start"
 	ServerBackupDownload        = "server:backup.download"
 	ServerBackupDelete          = "server:backup.delete"
@@ -110,6 +118,8 @@ var Specs = []Spec{
 	{UserTwoFactorDelete, nil},
 
 	{ServerReinstall, nil},
+	{ServerPowerStart, nil}, {ServerPowerStop, nil}, {ServerPowerRestart, nil}, {ServerPowerKill, nil},
+	{ServerConsoleCommand, []string{"command"}},
 
 	{ServerBackupStart, []string{"name", "locked"}},
 	{ServerBackupDownload, []string{"name"}},

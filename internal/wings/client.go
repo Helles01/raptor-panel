@@ -15,10 +15,12 @@ import (
 	"unicode/utf8"
 )
 
+// MaxCommandLength is the longest command, in bytes, that Command sends.
+const MaxCommandLength = 4096
+
 const (
 	maxResponseBytes = 1 << 20
 	maxCommands      = 100
-	maxCommandLength = 4096
 	maxMessageLength = 500
 )
 
@@ -34,6 +36,10 @@ type Error struct {
 	RequestID string
 	// Unreachable is true when there was no reply at all.
 	Unreachable bool
+	// NodeStatus is the status the node answered with, 0 when it did not answer. Status can differ from it when the panel makes up
+	// its own (a reply it cannot use), which a caller that acts on what the node said, such as "502: the server is offline", must
+	// be able to tell apart.
+	NodeStatus int
 
 	cause error
 }
@@ -127,7 +133,7 @@ func (c *Client) Command(ctx context.Context, serverUUID string, commands ...str
 		return fmt.Errorf("wings: send between 1 and %d commands", maxCommands)
 	}
 	for _, cmd := range commands {
-		if cmd == "" || len(cmd) > maxCommandLength || strings.ContainsRune(cmd, 0) {
+		if cmd == "" || len(cmd) > MaxCommandLength || strings.ContainsRune(cmd, 0) {
 			return errors.New("wings: a command is empty, too long or contains a NUL character")
 		}
 	}
@@ -215,7 +221,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 	raw, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes+1))
 	if err != nil || len(raw) > maxResponseBytes {
-		return &Error{Status: http.StatusBadGateway, Message: "The machine running this server sent an unusable reply.", cause: err}
+		return &Error{Status: http.StatusBadGateway, NodeStatus: res.StatusCode, Message: "The machine running this server sent an unusable reply.", cause: err}
 	}
 
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
@@ -223,7 +229,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 			return nil
 		}
 		if err := json.Unmarshal(raw, out); err != nil {
-			return &Error{Status: http.StatusBadGateway, Message: "The machine running this server sent an unusable reply.", cause: err}
+			return &Error{Status: http.StatusBadGateway, NodeStatus: res.StatusCode, Message: "The machine running this server sent an unusable reply.", cause: err}
 		}
 		return nil
 	}
@@ -245,7 +251,7 @@ func replyError(res *http.Response, raw []byte) *Error {
 		status = http.StatusBadGateway
 	}
 
-	e := &Error{Status: status, RequestID: requestID}
+	e := &Error{Status: status, NodeStatus: res.StatusCode, RequestID: requestID}
 	if status < 500 {
 		var body struct {
 			Error string `json:"error"`

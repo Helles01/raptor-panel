@@ -30,6 +30,7 @@ const (
 	CodeValidation       = "ValidationException"
 	CodeInternal         = "Exception"
 	CodeTwoFactor        = "TwoFactorAuthRequiredException"
+	CodeDaemon           = "DaemonConnectionException"
 
 	// InternalDetail is the only thing a client ever learns about an unexpected failure.
 	InternalDetail = "An unexpected error was encountered while processing this request, please try again."
@@ -126,6 +127,17 @@ func Validation(fields []FieldError) *Error {
 		return nil
 	}
 	return &Error{Status: http.StatusUnprocessableEntity, Code: CodeValidation, Detail: "The given data was invalid.", Fields: fields}
+}
+
+// Http is an error with a status of the handler's choosing and a text meant for the person, such as 502 "the server must be online".
+func Http(status int, detail string) *Error {
+	return &Error{Status: status, Code: CodeHTTP, Detail: detail}
+}
+
+// Daemon is the error of a call to a node that failed (the reference's DaemonConnectionException): the status and the text are the
+// ones the client of the node worked out, cause is for the logs only.
+func Daemon(status int, detail string, cause error) *Error {
+	return &Error{Status: status, Code: CodeDaemon, Detail: detail, cause: cause}
 }
 
 // Internal is a 500 with the generic message. cause is kept for the logs only.

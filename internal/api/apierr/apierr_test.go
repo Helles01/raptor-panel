@@ -34,6 +34,8 @@ func TestWriteMatchesTheReferenceShape(t *testing.T) {
 		{"method not allowed", MethodNotAllowed(), 405, "MethodNotAllowedHttpException", "The method is not allowed for the requested route."},
 		{"conflict", Conflict("Already exists."), 409, "ConflictHttpException", "Already exists."},
 		{"too large", TooLarge(), 413, "HttpException", "The request body is too large."},
+		{"a status of the handler", Http(502, "Server must be online in order to send commands."), 502, "HttpException", "Server must be online in order to send commands."},
+		{"a failed call to a node", Daemon(504, "Could not establish a connection.", errors.New("dial tcp 10.0.0.9: i/o timeout")), 504, "DaemonConnectionException", "Could not establish a connection."},
 		{"throttled", TooManyRequests(time.Second), 429, "ThrottleRequestsException", "Too Many Attempts."},
 		{"internal", Internal(errors.New("db password is hunter2")), 500, "Exception", InternalDetail},
 	}
@@ -182,5 +184,20 @@ func TestTwoFactorRequired(t *testing.T) {
 	Write(rec, e)
 	if !strings.Contains(rec.Body.String(), `"code":"TwoFactorAuthRequiredException"`) {
 		t.Errorf("body = %s", rec.Body.String())
+	}
+}
+
+func TestDaemonKeepsItsCauseForTheLogsOnly(t *testing.T) {
+	cause := errors.New("dial tcp 10.0.0.9:8080: token=hunter2")
+	err := Daemon(504, "Could not establish a connection to the machine running this server.", cause)
+	rec := httptest.NewRecorder()
+
+	Write(rec, err)
+
+	if strings.Contains(rec.Body.String(), "hunter2") || strings.Contains(rec.Body.String(), "10.0.0.9") {
+		t.Errorf("the cause reached the client: %s", rec.Body)
+	}
+	if !errors.Is(err, cause) {
+		t.Error("the cause was lost, the logs need it")
 	}
 }
