@@ -17,6 +17,7 @@ import (
 // Codes that clients depend on or that mirror the reference panel's exception names.
 const (
 	CodeBadRequest       = "BadRequestHttpException"
+	CodeDisplay          = "DisplayException"
 	CodeInvalidFilter    = "InvalidFilterQuery"
 	CodeInvalidSort      = "InvalidSortQuery"
 	CodeUnauthenticated  = "AuthenticationException"
@@ -66,6 +67,12 @@ func (e *Error) Unwrap() error { return e.cause }
 
 func BadRequest(detail string) *Error {
 	return &Error{Status: http.StatusBadRequest, Code: CodeBadRequest, Detail: detail}
+}
+
+// Display is the 400 of the reference's DisplayException: a refusal whose text is meant for the person using the panel, such as a
+// failed sign-in or a used-up reset link.
+func Display(detail string) *Error {
+	return &Error{Status: http.StatusBadRequest, Code: CodeDisplay, Detail: detail}
 }
 
 // InvalidFilter is the 400 for a list filter the endpoint does not offer.

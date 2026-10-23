@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"unicode/utf8"
 )
 
 // The events the panel writes itself. The activity texts of the frontend are keyed by these names and fill their
@@ -161,9 +162,39 @@ var Specs = []Spec{
 	{ServerSubuserDelete, []string{"email", "revoked"}},
 }
 
+// MetadataKeys are the properties any entry may carry besides its own: the address and browser of the request, and whether
+// the action came through SFTP. The screens never ask for them in a text, and the entry shows them apart.
+var MetadataKeys = []string{"ip", "useragent", "using_sftp"}
+
+// MaxUserAgentLength is the longest browser name that is stored.
+const MaxUserAgentLength = 512
+
+// WithRequestMetadata returns a copy of values with the client address and browser of the request added, for an entry that
+// records where it came from (the reference's withRequestMetadata). The browser is cut to MaxUserAgentLength bytes.
+func WithRequestMetadata(values map[string]any, ip, userAgent string) map[string]any {
+	out := make(map[string]any, len(values)+2)
+	for k, v := range values {
+		out[k] = v
+	}
+	out["ip"] = ip
+	out["useragent"] = cutBytes(userAgent, MaxUserAgentLength)
+	return out
+}
+
+// cutBytes cuts s to at most n bytes without splitting a character.
+func cutBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 // Properties returns the JSON object to store for an event the panel writes. The values must be exactly the
-// properties of the event: a missing one would leave a hole in the text the user reads, and an extra one would store
-// what no screen shows.
+// properties of the event, and may add the MetadataKeys: a missing property would leave a hole in the text the user reads, and an
+// unknown one would store what no screen shows.
 func Properties(event string, values map[string]any) (string, error) {
 	i := slices.IndexFunc(Specs, func(s Spec) bool { return s.Event == event })
 	if i < 0 {
@@ -178,7 +209,7 @@ func Properties(event string, values map[string]any) (string, error) {
 		}
 	}
 	for k := range values {
-		if !slices.Contains(want, k) {
+		if !slices.Contains(want, k) && !slices.Contains(MetadataKeys, k) {
 			extra = append(extra, k)
 		}
 	}

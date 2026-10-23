@@ -158,3 +158,16 @@ func TestInvalidQueryErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestDisplay(t *testing.T) {
+	e := Display("No account matching those credentials could be found.")
+
+	if e.Status != 400 || e.Code != "DisplayException" {
+		t.Errorf("got %d %s, want 400 DisplayException", e.Status, e.Code)
+	}
+	rec := httptest.NewRecorder()
+	Write(rec, e)
+	if !strings.Contains(rec.Body.String(), `"code":"DisplayException"`) || !strings.Contains(rec.Body.String(), "No account matching") || rec.Code != 400 {
+		t.Errorf("response = %d %s", rec.Code, rec.Body.String())
+	}
+}

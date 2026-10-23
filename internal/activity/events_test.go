@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const localePath = "../api/web/locales/en/activity.json"
@@ -271,5 +272,75 @@ func TestTheFrontendTextsAreRead(t *testing.T) {
 	}
 	if _, ok := texts["server:file.compress"]; !ok {
 		t.Error("the plural forms (_one and _other) must count as one event")
+	}
+}
+
+func TestPropertiesAllowTheRequestMetadata(t *testing.T) {
+	values := WithRequestMetadata(map[string]any{}, "203.0.113.9", "Mozilla/5.0")
+
+	got, err := Properties(AuthSuccess, values)
+	if err != nil {
+		t.Fatalf("Properties: %v", err)
+	}
+
+	var back map[string]any
+	if err := json.Unmarshal([]byte(got), &back); err != nil || back["ip"] != "203.0.113.9" || back["useragent"] != "Mozilla/5.0" || len(back) != 2 {
+		t.Errorf("properties = %s, %v", got, err)
+	}
+}
+
+func TestPropertiesAllowTheMetadataOnEveryEvent(t *testing.T) {
+	for _, s := range Specs {
+		values := map[string]any{}
+		for _, p := range s.Properties {
+			values[p] = "x"
+		}
+		values["ip"], values["useragent"], values["using_sftp"] = "1.1.1.1", "ua", true
+
+		if _, err := Properties(s.Event, values); err != nil {
+			t.Errorf("%s: %v", s.Event, err)
+		}
+	}
+}
+
+func TestPropertiesStillRefuseOtherExtras(t *testing.T) {
+	_, err := Properties(AuthSuccess, map[string]any{"ip": "1.1.1.1", "password": "secret"})
+
+	if err == nil || !strings.Contains(err.Error(), "unknown ones [password]") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestWithRequestMetadata(t *testing.T) {
+	in := map[string]any{"name": "x"}
+
+	out := WithRequestMetadata(in, "10.0.0.1", "agent")
+
+	if len(in) != 1 {
+		t.Error("the values that were passed in were changed")
+	}
+	if out["name"] != "x" || out["ip"] != "10.0.0.1" || out["useragent"] != "agent" || len(out) != 3 {
+		t.Errorf("out = %v", out)
+	}
+	if got := WithRequestMetadata(nil, "10.0.0.1", ""); got["useragent"] != "" || len(got) != 2 {
+		t.Errorf("without values or a browser: %v", got)
+	}
+}
+
+func TestWithRequestMetadataCutsTheBrowser(t *testing.T) {
+	long := strings.Repeat("a", MaxUserAgentLength+10)
+	if got := WithRequestMetadata(nil, "1.1.1.1", long)["useragent"]; got != long[:MaxUserAgentLength] {
+		t.Errorf("the browser was not cut to %d bytes: %d", MaxUserAgentLength, len(got.(string)))
+	}
+	exact := strings.Repeat("a", MaxUserAgentLength)
+	if got := WithRequestMetadata(nil, "1.1.1.1", exact)["useragent"]; got != exact {
+		t.Error("a browser of exactly the limit must be kept whole")
+	}
+
+	// A character that would be split is dropped whole.
+	multi := strings.Repeat("a", MaxUserAgentLength-1) + "é"
+	got := WithRequestMetadata(nil, "1.1.1.1", multi)["useragent"].(string)
+	if got != strings.Repeat("a", MaxUserAgentLength-1) || !utf8.ValidString(got) {
+		t.Errorf("a split character must be dropped: %q", got[len(got)-3:])
 	}
 }
