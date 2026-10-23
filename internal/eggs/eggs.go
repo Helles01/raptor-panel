@@ -35,6 +35,18 @@ var (
 	envNamePattern = regexp.MustCompile(`^\w{1,191}$`)
 )
 
+// CheckEnvName checks the environment variable name of an egg variable: letters, digits and underscores, and not one of the
+// names the panel sets itself.
+func CheckEnvName(name string) error {
+	if !envNamePattern.MatchString(name) {
+		return errors.New("environment variable name must be 1 to 191 letters, digits or underscores")
+	}
+	if reservedEnvNames[name] {
+		return fmt.Errorf("%s is reserved", name)
+	}
+	return nil
+}
+
 // reservedEnvNames can never be egg variables because the panel sets them itself.
 var reservedEnvNames = map[string]bool{
 	"SERVER_MEMORY": true, "SERVER_IP": true, "SERVER_PORT": true, "ENV": true, "HOME": true,
@@ -243,11 +255,8 @@ func (e Egg) Validate() error {
 		if err := textBetween("variable name", v.Name, 1, maxField); err != nil {
 			return err
 		}
-		if !envNamePattern.MatchString(v.EnvVariable) {
-			return fmt.Errorf("variable %q: environment variable name must be 1 to 191 letters, digits or underscores", v.Name)
-		}
-		if reservedEnvNames[v.EnvVariable] {
-			return fmt.Errorf("variable %q: %s is reserved", v.Name, v.EnvVariable)
+		if err := CheckEnvName(v.EnvVariable); err != nil {
+			return fmt.Errorf("variable %q: %w", v.Name, err)
 		}
 		if env[v.EnvVariable] {
 			return fmt.Errorf("environment variable %s is defined twice", v.EnvVariable)

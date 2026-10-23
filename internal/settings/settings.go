@@ -63,6 +63,12 @@ func specs() map[string]spec {
 	}
 }
 
+// Known reports whether key is a setting that can be changed.
+func Known(key string) bool {
+	_, ok := specs()[key]
+	return ok
+}
+
 // Keys returns the names of all settings that can be changed, sorted.
 func Keys() []string {
 	var keys []string

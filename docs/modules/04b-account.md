@@ -29,7 +29,7 @@ have the nodes drop the user's tokens, delete the reset tokens; write `user:acco
 In one transaction delete the old recovery tokens, insert the hashes, set `use_totp` and `totp_authenticated_at = UsedAt`; write `user:two-factor.create`; answer the tokens
 (`{"object":"recovery_tokens","attributes":{"tokens":[…]}}`).
 
-**Two-factor disable** (`DELETE`): decode `password`; the counters; `PlanTwoFactorDisable`; clear `use_totp`, the secret and the recovery tokens; write `user:two-factor.delete`. 204.
+**Two-factor disable** (`POST …/two-factor/disable`): decode `password`; the counters; `PlanTwoFactorDisable`; clear `use_totp`, the secret and the recovery tokens; write `user:two-factor.delete`. 204.
 
 ## What matches the reference
 The texts of all refusals, the 3-in-24-hours limit and what counts as a change, the order of the checks, the ten recovery tokens of ten characters stored as password hashes, the setup address.

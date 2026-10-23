@@ -189,3 +189,31 @@ func TestParseReferenceEggs(t *testing.T) {
 	}
 	t.Logf("parsed %d reference eggs", count)
 }
+
+func TestCheckEnvName(t *testing.T) {
+	tests := []struct {
+		name    string
+		wantErr string
+	}{
+		{"SERVER_JARFILE", ""},
+		{"a", ""},
+		{"_X1", ""},
+		{"", "1 to 191"},
+		{"with space", "1 to 191"},
+		{"dash-ed", "1 to 191"},
+		{"semi;colon", "1 to 191"},
+		{"new\nline", "1 to 191"},
+		{"SERVER_MEMORY", "reserved"},
+		{"SERVER_IP", "reserved"},
+		{"SERVER_PORT", "reserved"},
+	}
+	for _, tt := range tests {
+		err := CheckEnvName(tt.name)
+		switch {
+		case tt.wantErr == "" && err != nil:
+			t.Errorf("CheckEnvName(%q) = %v, want ok", tt.name, err)
+		case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+			t.Errorf("CheckEnvName(%q) = %v, want an error containing %q", tt.name, err, tt.wantErr)
+		}
+	}
+}

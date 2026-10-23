@@ -89,3 +89,16 @@ func TestStorageKey(t *testing.T) {
 		t.Errorf("StorageKey = %q", got)
 	}
 }
+
+func TestKnown(t *testing.T) {
+	for _, k := range Keys() {
+		if !Known(k) {
+			t.Errorf("Known(%q) = false for a key that Keys lists", k)
+		}
+	}
+	for _, k := range []string{"", "app:nam", "APP:NAME", "app:name ", "mail:mailers:smtp:password"} {
+		if Known(k) {
+			t.Errorf("Known(%q) = true", k)
+		}
+	}
+}

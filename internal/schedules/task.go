@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Helles01/raptor-panel/internal/backups"
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 	"github.com/Helles01/raptor-panel/internal/permissions"
 )
 
@@ -39,6 +40,10 @@ type Task struct {
 	TimeOffset int
 	// Sequence is the position in the schedule, from 1.
 	Sequence int
+	// ID is the row of the task, for the scheduler; the rules of a task do not need it.
+	ID uint64
+	// ContinueOnFailure lets the schedule go on with the next task when the node could not do this one.
+	ContinueOnFailure bool
 }
 
 // Validate checks a task against allow-lists. It does not know the schedule, so the limit of tasks and the sequence are
@@ -114,16 +119,16 @@ func CanRun(held []string, tasks []Task) bool {
 	return true
 }
 
-// ValidateName checks the name of a schedule.
+// ValidateName checks the name of a schedule. The error is a *fielderr.Error on "name".
 func ValidateName(name string) error {
 	if strings.TrimSpace(name) == "" {
-		return errors.New("a schedule needs a name")
+		return fielderr.New("name", "is required")
 	}
 	if utf8.RuneCountInString(name) > MaxNameLength {
-		return fmt.Errorf("the name must be at most %d characters", MaxNameLength)
+		return fielderr.New("name", "must be at most %d characters", MaxNameLength)
 	}
 	if !utf8.ValidString(name) || strings.ContainsFunc(name, func(r rune) bool { return r < ' ' || r == 0x7f }) {
-		return errors.New("the name must not contain control characters")
+		return fielderr.New("name", "must not contain control characters")
 	}
 	return nil
 }

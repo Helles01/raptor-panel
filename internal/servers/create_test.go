@@ -461,3 +461,30 @@ func TestSelectAllocation(t *testing.T) {
 		t.Error("want an error when no random bytes can be read")
 	}
 }
+
+func TestValidateImage(t *testing.T) {
+	tests := []struct {
+		image string
+		ok    bool
+	}{
+		{"ghcr.io/pterodactyl/yolks:java_17", true},
+		{"~ghcr.io/x/y:latest", true},
+		{"alpine", true},
+		{"registry:5000/a@sha256:abc", true},
+		{"", false},
+		{"a b", false},
+		{"a\nb", false},
+		{"a;b", false},
+		{"a|b", false},
+	}
+	for _, tt := range tests {
+		err := ValidateImage(tt.image)
+		if (err == nil) != tt.ok {
+			t.Errorf("ValidateImage(%q) = %v, want ok=%v", tt.image, err, tt.ok)
+		}
+		var fe *FieldError
+		if err != nil && (!errors.As(err, &fe) || fe.Field != "docker_image") {
+			t.Errorf("ValidateImage(%q): the error is not about docker_image: %v", tt.image, err)
+		}
+	}
+}

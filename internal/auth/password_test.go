@@ -127,3 +127,30 @@ func TestVerifyUnknownUser(t *testing.T) {
 		t.Error("the stand-in hash matched a password")
 	}
 }
+
+func TestValidHash(t *testing.T) {
+	good, err := HashPassword("a long enough password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		hash string
+		want bool
+	}{
+		{"made here", good, true},
+		{"from the reference", "$2y" + good[3:], true},
+		{"minor b", "$2b" + good[3:], true},
+		{"empty", "", false},
+		{"plain text", "password123", false},
+		{"too short", good[:30], false},
+		{"argon2", "$argon2id$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$aGFzaGhhc2hoYXNoaGFzaA", false},
+		{"md5 hex", "5f4dcc3b5aa765d61d8327deb882cf99", false},
+		{"a cost that is too low", "$2a$02$" + good[7:], false},
+	}
+	for _, tt := range tests {
+		if got := ValidHash(tt.hash); got != tt.want {
+			t.Errorf("%s: ValidHash = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

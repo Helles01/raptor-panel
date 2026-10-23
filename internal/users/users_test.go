@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Helles01/raptor-panel/internal/auth"
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 )
 
 func validInput() Input {
@@ -116,5 +117,34 @@ func TestValidate(t *testing.T) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateUsername(t *testing.T) {
+	tests := []struct {
+		name string
+		ok   bool
+	}{
+		{"admin", true},
+		{"Admin01", true},
+		{"a.b-c_d", true},
+		{"abc", true},
+		{"ab", false},
+		{"-abc", false},
+		{"abc.", false},
+		{"ab cd", false},
+		{"", false},
+		{strings.Repeat("a", 191), true},
+		{strings.Repeat("a", 192), false},
+		{"abc\n", false},
+	}
+	for _, tt := range tests {
+		err := ValidateUsername(tt.name)
+		if (err == nil) != tt.ok {
+			t.Errorf("ValidateUsername(%q) = %v, want ok=%v", tt.name, err, tt.ok)
+		}
+		if fe, isField := fielderr.Of(err); err != nil && (!isField || fe.Field != "username") {
+			t.Errorf("ValidateUsername(%q): the error is not about username: %v", tt.name, err)
+		}
 	}
 }

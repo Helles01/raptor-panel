@@ -176,6 +176,9 @@ func validateDescription(description string) error {
 	return nil
 }
 
+// ValidateImage checks the form of a Docker image name. The error is a *FieldError on "docker_image".
+func ValidateImage(image string) error { return validateImage(image) }
+
 func validateImage(image string) error {
 	if !imagePattern.MatchString(image) {
 		return fieldErr("docker_image", "must be 1 to %d letters, digits and . _ / : @ -", MaxImageLength)

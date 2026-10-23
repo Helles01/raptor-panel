@@ -132,13 +132,22 @@ func validateProfile(email, username, firstName, lastName string) error {
 	if err := validateEmail(email); err != nil {
 		return err
 	}
-	if n := utf8.RuneCountInString(username); n < 1 || n > maxLength || !usernamePattern.MatchString(strings.ToLower(username)) {
-		return fielderr.New("username", "must start and end with a letter or digit and contain only letters, digits, dashes, underscores and periods (3 to 191 characters)")
+	if err := ValidateUsername(username); err != nil {
+		return err
 	}
 	if err := validateName("first_name", firstName); err != nil {
 		return err
 	}
 	return validateName("last_name", lastName)
+}
+
+// ValidateUsername checks a user name. The rule is applied to the lower case name, since the name is stored in lower case. The
+// error is a *fielderr.Error on "username".
+func ValidateUsername(username string) error {
+	if n := utf8.RuneCountInString(username); n < 1 || n > maxLength || !usernamePattern.MatchString(strings.ToLower(username)) {
+		return fielderr.New("username", "must start and end with a letter or digit and contain only letters, digits, dashes, underscores and periods (3 to 191 characters)")
+	}
+	return nil
 }
 
 // ValidateExternalID checks the identifier another system gave an account.

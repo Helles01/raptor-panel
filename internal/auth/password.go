@@ -42,6 +42,13 @@ func VerifyUnknownUser(password string) bool {
 	return false
 }
 
+// ValidHash reports whether hash is a bcrypt hash that VerifyPassword can check a password against. A hash of another kind, or a
+// damaged one, can never match: the user cannot sign in.
+func ValidHash(hash string) bool {
+	_, err := bcrypt.Cost([]byte(hash))
+	return err == nil
+}
+
 // VerifyPassword reports whether password matches a stored bcrypt hash.
 //
 // Hashes written by the reference panel (PHP) start with $2y$. That is the same algorithm as $2a$, so the prefix is
