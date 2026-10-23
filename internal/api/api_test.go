@@ -201,6 +201,17 @@ func TestRegistrationPanicsOnMistakes(t *testing.T) {
 		{"bad subuser permission", func(r *Router) { r.GET("/x", ok, ServerPermission("start")) }, "not a subuser permission"},
 		{"subuser permission with a path", func(r *Router) { r.GET("/x", ok, ServerPermission("../etc.passwd")) }, "not a subuser permission"},
 		{"no handler", func(r *Router) { r.GET("/x", nil, Public()) }, "no handler"},
+		{"a server state on a public route", func(r *Router) { r.GET("/x", ok, Permission{Kind: KindPublic, State: StateAny}) }, "takes no server state"},
+		{"a server state on an application route", func(r *Router) {
+			r.GET("/x", ok, Permission{Kind: KindApplicationKey, Resource: "servers", Access: auth.AccessRead, State: StateAny})
+		}, "no server state"},
+		{"an unknown server state", func(r *Router) { r.GET("/x", ok, ServerPermissionIn("control.start", ServerState(9))) }, "unknown server state"},
+		{"a negative server state", func(r *Router) { r.GET("/x", ok, ServerPermissionIn("control.start", ServerState(-1))) }, "unknown server state"},
+		{"an exemption on a guest route", func(r *Router) { r.GET("/x", ok, Guest().WithoutTwoFactor()) }, "only a route for the signed in"},
+		{"an exemption on a server route", func(r *Router) { r.GET("/x", ok, Permission{Kind: KindServer, NoTwoFactor: true}) }, "cannot be open without two-factor"},
+		{"an exemption on an application route", func(r *Router) {
+			r.GET("/x", ok, Permission{Kind: KindApplicationKey, Resource: "servers", Access: auth.AccessRead, NoTwoFactor: true})
+		}, "no server state or exemption"},
 		{"duplicate", func(r *Router) { r.GET("/x", ok, Public()); r.GET("/x", ok, Public()) }, "registered twice"},
 		{"duplicate through a group", func(r *Router) { r.GET("/a/x", ok, Public()); r.Sub("/a").GET("/x", ok, Public()) }, "registered twice"},
 	}
@@ -422,5 +433,55 @@ func TestClientAddressFollowsTheTrustedProxyList(t *testing.T) {
 	}
 	if got := via("10.0.0.2:1", "203.0.113.5"); got != "203.0.113.5" {
 		t.Errorf("a trusted proxy was not believed: %q", got)
+	}
+}
+
+func TestServerStatesAndExemptionsAreRegistered(t *testing.T) {
+	ok := func(c echo.Context) error { return nil }
+	authz := &recordingAuthorizer{}
+	s, _ := newTestServer(t, authz)
+	s.Router.GET("/view", ok, ServerPermissionIn("", StateAny))
+	s.Router.GET("/ws", ok, ServerPermissionIn("websocket.connect", StateAdminConsole))
+	s.Router.POST("/reinstall", ok, ServerPermissionIn("settings.reinstall", StateReinstall))
+	s.Router.GET("/account", ok, Authenticated().WithoutTwoFactor())
+
+	for _, path := range []string{"/view", "/ws", "/account"} {
+		if rec := serve(t, s, "GET", path); rec.Code != 200 {
+			t.Fatalf("GET %s = %d", path, rec.Code)
+		}
+	}
+	serve(t, s, "POST", "/reinstall")
+
+	want := []Permission{
+		{Kind: KindServer, State: StateAny},
+		{Kind: KindServer, Resource: "websocket.connect", State: StateAdminConsole},
+		{Kind: KindAuthenticated, NoTwoFactor: true},
+		{Kind: KindServer, Resource: "settings.reinstall", State: StateReinstall},
+	}
+	if len(authz.seen) != len(want) {
+		t.Fatalf("seen %d decisions, want %d", len(authz.seen), len(want))
+	}
+	for i, w := range want {
+		if authz.seen[i] != w {
+			t.Errorf("decision %d saw %+v, want %+v", i, authz.seen[i], w)
+		}
+	}
+}
+
+func TestPermissionStringShowsStateAndExemption(t *testing.T) {
+	tests := []struct {
+		p    Permission
+		want string
+	}{
+		{ServerPermission("control.start"), "server:control.start"},
+		{ServerPermissionIn("", StateAny), "server[state 1]"},
+		{ServerPermissionIn("websocket.connect", StateAdminConsole), "server:websocket.connect[state 2]"},
+		{Authenticated().WithoutTwoFactor(), "authenticated[no 2fa]"},
+		{Authenticated(), "authenticated"},
+	}
+	for _, tt := range tests {
+		if got := tt.p.String(); got != tt.want {
+			t.Errorf("String() = %q, want %q", got, tt.want)
+		}
 	}
 }

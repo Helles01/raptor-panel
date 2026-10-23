@@ -171,3 +171,16 @@ func TestDisplay(t *testing.T) {
 		t.Errorf("response = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestTwoFactorRequired(t *testing.T) {
+	e := TwoFactorRequired()
+
+	if e.Status != 400 || e.Code != "TwoFactorAuthRequiredException" || !strings.Contains(e.Detail, "Two-factor authentication is required") {
+		t.Errorf("got %d %s %q", e.Status, e.Code, e.Detail)
+	}
+	rec := httptest.NewRecorder()
+	Write(rec, e)
+	if !strings.Contains(rec.Body.String(), `"code":"TwoFactorAuthRequiredException"`) {
+		t.Errorf("body = %s", rec.Body.String())
+	}
+}

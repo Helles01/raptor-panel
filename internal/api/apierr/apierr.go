@@ -69,6 +69,12 @@ func BadRequest(detail string) *Error {
 	return &Error{Status: http.StatusBadRequest, Code: CodeBadRequest, Detail: detail}
 }
 
+// TwoFactorRequired is the 400 for a user who has to switch two-factor authentication on before using the endpoint. The
+// frontend reads the code and sends the user to the account page.
+func TwoFactorRequired() *Error {
+	return &Error{Status: http.StatusBadRequest, Code: CodeTwoFactor, Detail: "Two-factor authentication is required on this account in order to access this endpoint."}
+}
+
 // Display is the 400 of the reference's DisplayException: a refusal whose text is meant for the person using the panel, such as a
 // failed sign-in or a used-up reset link.
 func Display(detail string) *Error {

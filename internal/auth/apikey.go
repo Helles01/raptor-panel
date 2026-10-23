@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -126,4 +128,12 @@ func ParseResourceAccess(specs []string) (map[string]Access, error) {
 		out[name] = access
 	}
 	return out, nil
+}
+
+// HashKeySecret is how the secret of an API key is stored: the SHA-256 of it in hex. The secret is long and random, so a fast hash is
+// enough, and a copy of the table cannot be turned into working keys. The reference stores the secret encrypted, which the panel
+// can always read back; those keys are re-issued at the cutover.
+func HashKeySecret(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:])
 }

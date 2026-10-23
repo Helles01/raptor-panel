@@ -182,3 +182,16 @@ func TestApplicationResourcesMatchTheReference(t *testing.T) {
 		t.Errorf("ApplicationResources = %v, want %v", got, want)
 	}
 }
+
+func TestHashKeySecret(t *testing.T) {
+	secret := strings.Repeat("a", SecretLength)
+
+	h := HashKeySecret(secret)
+
+	if len(h) != 64 || h != HashKeySecret(secret) || h == HashKeySecret(strings.Repeat("b", SecretLength)) || strings.Contains(h, secret) {
+		t.Errorf("hash = %q", h)
+	}
+	if HashKeySecret("") != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		t.Error("the hash is not the SHA-256 in lower case hex")
+	}
+}

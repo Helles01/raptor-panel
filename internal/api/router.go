@@ -34,6 +34,21 @@ const (
 	KindDaemon Kind = "daemon"
 )
 
+// ServerState says in which states of a server a route may be used. A route that does not say is for a server in its normal state.
+type ServerState int
+
+const (
+	// StateNormal: only a server that is installed, not suspended, not under maintenance, not restoring and not transferring.
+	StateNormal ServerState = iota
+	// StateAny: whatever the state, for the route that shows the server itself, so that an installing server can still be looked at.
+	StateAny
+	// StateAdminConsole: as StateNormal, except that an administrator may also connect to a server that is installing, failed,
+	// restoring or transferring (not suspended, and not on a node under maintenance).
+	StateAdminConsole
+	// StateReinstall: as StateNormal, except that a server whose first installation failed may be reinstalled by its owner (C-048).
+	StateReinstall
+)
+
 // Permission is the descriptor every route must be registered with. Registering a route without one is a programming
 // error that stops the server from starting, so no route can be forgotten.
 type Permission struct {
@@ -43,6 +58,11 @@ type Permission struct {
 	Resource string
 	// Access is the level an application key needs on Resource.
 	Access auth.Access
+	// State is for KindServer: the states of the server the route may be used in.
+	State ServerState
+	// NoTwoFactor exempts a route from the requirement of two-factor authentication, so that a user who must switch it on can reach
+	// what it takes to do so.
+	NoTwoFactor bool
 }
 
 func Guest() Permission         { return Permission{Kind: KindGuest} }
@@ -62,17 +82,36 @@ func ServerPermission(permission string) Permission {
 	return Permission{Kind: KindServer, Resource: permission}
 }
 
+// ServerPermissionIn is ServerPermission for a route that may be used in other states of the server than the normal one.
+func ServerPermissionIn(permission string, state ServerState) Permission {
+	return Permission{Kind: KindServer, Resource: permission, State: state}
+}
+
+// WithoutTwoFactor returns the permission of a route that is open to a user who has not switched two-factor authentication on
+// although the panel requires it: the account's own details and the setting up of two-factor authentication.
+func (p Permission) WithoutTwoFactor() Permission {
+	p.NoTwoFactor = true
+	return p
+}
+
 var serverPermissionPattern = regexp.MustCompile(`^[a-z][a-z-]*\.[a-z][a-z-]*$`)
 
 func (p Permission) String() string {
+	s := string(p.Kind)
 	switch {
 	case p.Resource == "":
-		return string(p.Kind)
 	case p.Kind == KindApplicationKey:
-		return fmt.Sprintf("%s:%s:%d", p.Kind, p.Resource, p.Access)
+		s = fmt.Sprintf("%s:%s:%d", p.Kind, p.Resource, p.Access)
 	default:
-		return fmt.Sprintf("%s:%s", p.Kind, p.Resource)
+		s = fmt.Sprintf("%s:%s", p.Kind, p.Resource)
 	}
+	if p.State != StateNormal {
+		s += fmt.Sprintf("[state %d]", p.State)
+	}
+	if p.NoTwoFactor {
+		s += "[no 2fa]"
+	}
+	return s
 }
 
 func (p Permission) validate() error {
@@ -81,7 +120,16 @@ func (p Permission) validate() error {
 		if p.Resource != "" || p.Access != auth.AccessNone {
 			return fmt.Errorf("a %s permission takes no resource or access", p.Kind)
 		}
+		if p.State != StateNormal {
+			return fmt.Errorf("a %s permission takes no server state", p.Kind)
+		}
+		if p.NoTwoFactor && p.Kind != KindAuthenticated {
+			return fmt.Errorf("only a route for the signed in may be open without two-factor authentication")
+		}
 	case KindApplicationKey:
+		if p.State != StateNormal || p.NoTwoFactor {
+			return fmt.Errorf("an application key permission takes no server state or exemption")
+		}
 		known := false
 		for _, r := range auth.ApplicationResources() {
 			known = known || r == p.Resource
@@ -95,6 +143,12 @@ func (p Permission) validate() error {
 	case KindServer:
 		if p.Resource != "" && !serverPermissionPattern.MatchString(p.Resource) {
 			return fmt.Errorf("%q is not a subuser permission name", p.Resource)
+		}
+		if p.State < StateNormal || p.State > StateReinstall {
+			return fmt.Errorf("unknown server state %d", p.State)
+		}
+		if p.NoTwoFactor {
+			return fmt.Errorf("a server route cannot be open without two-factor authentication")
 		}
 	case "":
 		return fmt.Errorf("no permission given")
