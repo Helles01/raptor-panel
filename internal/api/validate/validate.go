@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Helles01/raptor-panel/internal/api/apierr"
+	"github.com/Helles01/raptor-panel/internal/api/field"
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -56,17 +57,53 @@ func (v *Validator) Required(field, value string) {
 	}
 }
 
+// Kind is what a typed field is meant to hold.
+type Kind int
+
+const (
+	KindString Kind = iota
+	KindInteger
+	KindNumber // a whole number too, but with the framework's "must be a number" text
+	KindBoolean
+)
+
+// Sent fails unless the field came with a value. A null or blank value counts as missing, as with the framework's
+// required rule.
+func (v *Validator) Sent(f string, s field.State) {
+	if s == field.Absent || s == field.Null {
+		v.fail(f, "required", fmt.Sprintf("The %s field is required.", name(f)))
+	}
+}
+
+// Type fails for a value of the wrong kind. An absent field passes, and a null one only if the field is nullable: the
+// framework's string, integer and boolean rules do not accept null on their own.
+func (v *Validator) Type(f string, s field.State, kind Kind, nullable bool) {
+	if s == field.Valid || s == field.Absent || (s == field.Null && nullable) {
+		return
+	}
+	switch kind {
+	case KindString:
+		v.fail(f, "string", fmt.Sprintf("The %s must be a string.", name(f)))
+	case KindInteger:
+		v.fail(f, "integer", fmt.Sprintf("The %s must be an integer.", name(f)))
+	case KindNumber:
+		v.fail(f, "numeric", fmt.Sprintf("The %s must be a number.", name(f)))
+	case KindBoolean:
+		v.fail(f, "boolean", fmt.Sprintf("The %s field must be true or false.", name(f)))
+	}
+}
+
 // Length fails unless the value has between min and max characters (not bytes).
 func (v *Validator) Length(field, value string, min, max int) {
 	if n := utf8.RuneCountInString(value); n < min || n > max {
-		v.fail(field, "between", fmt.Sprintf("The %s field must be between %d and %d characters.", name(field), min, max))
+		v.fail(field, "between", fmt.Sprintf("The %s must be between %d and %d characters.", name(field), min, max))
 	}
 }
 
 // Matches fails unless the whole value matches re.
 func (v *Validator) Matches(field, value string, re *regexp.Regexp) {
 	if !re.MatchString(value) {
-		v.fail(field, "regex", fmt.Sprintf("The %s field format is invalid.", name(field)))
+		v.fail(field, "regex", fmt.Sprintf("The %s format is invalid.", name(field)))
 	}
 }
 
@@ -83,7 +120,7 @@ func (v *Validator) OneOf(field, value string, allowed ...string) {
 // IntRange fails unless min <= n <= max.
 func (v *Validator) IntRange(field string, n, min, max int64) {
 	if n < min || n > max {
-		v.fail(field, "between", fmt.Sprintf("The %s field must be between %d and %d.", name(field), min, max))
+		v.fail(field, "between", fmt.Sprintf("The %s must be between %d and %d.", name(field), min, max))
 	}
 }
 
@@ -98,7 +135,7 @@ func (v *Validator) UUID(field, value string) {
 func (v *Validator) Email(field, value string) {
 	addr, err := mail.ParseAddress(value)
 	if err != nil || addr.Address != value || utf8.RuneCountInString(value) > 191 || strings.ContainsAny(value, " \t\r\n<>(),;:\"") {
-		v.fail(field, "email", fmt.Sprintf("The %s field must be a valid email address.", name(field)))
+		v.fail(field, "email", fmt.Sprintf("The %s must be a valid email address.", name(field)))
 	}
 }
 

@@ -3,7 +3,6 @@
 package nodes
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 	"github.com/Helles01/raptor-panel/internal/ids"
 )
 
@@ -32,15 +32,16 @@ var (
 // ValidateLocation checks the short and long names of a location.
 func ValidateLocation(short, long string) error {
 	if n := utf8.RuneCountInString(short); n < 1 || n > 60 {
-		return errors.New("short name must be 1 to 60 characters")
+		return fielderr.New("short", "must be 1 to 60 characters")
 	}
 	if utf8.RuneCountInString(long) > 191 {
-		return errors.New("long name must be at most 191 characters")
+		return fielderr.New("long", "must be at most 191 characters")
 	}
-	for _, s := range []string{short, long} {
-		if strings.ContainsFunc(s, func(r rune) bool { return r < ' ' || r == 0x7f }) {
-			return errors.New("location names must not contain control characters")
-		}
+	if hasControl(short) {
+		return fielderr.New("short", "must not contain control characters")
+	}
+	if hasControl(long) {
+		return fielderr.New("long", "must not contain control characters")
 	}
 	return nil
 }
@@ -82,31 +83,31 @@ func DefaultNewNode() NewNode {
 func (n NewNode) Validate() error {
 	switch {
 	case !namePattern.MatchString(n.Name):
-		return errors.New("name must be 1 to 100 characters of letters, digits, spaces, dots, dashes and underscores")
+		return fielderr.New("name", "must be 1 to 100 characters of letters, digits, spaces, dots, dashes and underscores")
 	case utf8.RuneCountInString(n.Description) > 10000 || strings.ContainsRune(n.Description, 0):
-		return errors.New("description is too long or contains a NUL character")
+		return fielderr.New("description", "is too long or contains a NUL character")
 	case n.LocationID < 1:
-		return errors.New("location is required")
+		return fielderr.New("location_id", "is required")
 	case !validHost(n.FQDN):
-		return errors.New("fqdn must be a host name or an IP address")
+		return fielderr.New("fqdn", "must be a host name or an IP address")
 	case n.Scheme != "http" && n.Scheme != "https":
-		return errors.New("scheme must be http or https")
+		return fielderr.New("scheme", "must be http or https")
 	case n.Memory < 1 || n.Memory > maxResource:
-		return errors.New("memory must be at least 1 MB")
+		return fielderr.New("memory", "must be between 1 and %d MB", maxResource)
 	case n.MemoryOverallocate < -1 || n.MemoryOverallocate > maxResource:
-		return errors.New("memory overallocation must be -1 (unlimited) or more")
+		return fielderr.New("memory_overallocate", "must be -1 (unlimited) or between 0 and %d", maxResource)
 	case n.Disk < 1 || n.Disk > maxResource:
-		return errors.New("disk must be at least 1 MB")
+		return fielderr.New("disk", "must be between 1 and %d MB", maxResource)
 	case n.DiskOverallocate < -1 || n.DiskOverallocate > maxResource:
-		return errors.New("disk overallocation must be -1 (unlimited) or more")
+		return fielderr.New("disk_overallocate", "must be -1 (unlimited) or between 0 and %d", maxResource)
 	case !validDaemonBase(n.DaemonBase):
-		return errors.New("daemon base must be an absolute path of letters, digits, dots, dashes, underscores and slashes, without .. segments")
+		return fielderr.New("daemon_base", "must be an absolute path of letters, digits, dots, dashes, underscores and slashes, without .. segments")
 	case n.DaemonSFTP < 1 || n.DaemonSFTP > 65535:
-		return errors.New("SFTP port must be between 1 and 65535")
+		return fielderr.New("daemon_sftp", "must be between 1 and 65535")
 	case n.DaemonListen < 1 || n.DaemonListen > 65535:
-		return errors.New("daemon port must be between 1 and 65535")
+		return fielderr.New("daemon_listen", "must be between 1 and 65535")
 	case n.UploadSize < 1 || n.UploadSize > maxUpload:
-		return errors.New("upload size must be at least 1 MB")
+		return fielderr.New("upload_size", "must be between 1 and %d MB", maxUpload)
 	}
 	return nil
 }
@@ -150,4 +151,8 @@ func NewCredentials(r io.Reader) (Credentials, error) {
 		return Credentials{}, fmt.Errorf("generate token: %w", err)
 	}
 	return Credentials{TokenID: id, Token: token}, nil
+}
+
+func hasControl(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r < ' ' || r == 0x7f })
 }

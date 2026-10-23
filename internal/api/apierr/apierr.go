@@ -17,6 +17,8 @@ import (
 // Codes that clients depend on or that mirror the reference panel's exception names.
 const (
 	CodeBadRequest       = "BadRequestHttpException"
+	CodeInvalidFilter    = "InvalidFilterQuery"
+	CodeInvalidSort      = "InvalidSortQuery"
 	CodeUnauthenticated  = "AuthenticationException"
 	CodeForbidden        = "AccessDeniedHttpException"
 	CodeNotFound         = "NotFoundHttpException"
@@ -64,6 +66,16 @@ func (e *Error) Unwrap() error { return e.cause }
 
 func BadRequest(detail string) *Error {
 	return &Error{Status: http.StatusBadRequest, Code: CodeBadRequest, Detail: detail}
+}
+
+// InvalidFilter is the 400 for a list filter the endpoint does not offer.
+func InvalidFilter(detail string) *Error {
+	return &Error{Status: http.StatusBadRequest, Code: CodeInvalidFilter, Detail: detail}
+}
+
+// InvalidSort is the 400 for a sort the endpoint does not offer.
+func InvalidSort(detail string) *Error {
+	return &Error{Status: http.StatusBadRequest, Code: CodeInvalidSort, Detail: detail}
 }
 
 func Unauthenticated() *Error {

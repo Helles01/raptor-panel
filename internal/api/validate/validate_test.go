@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Helles01/raptor-panel/internal/api/apierr"
+	"github.com/Helles01/raptor-panel/internal/api/field"
 )
 
 func fieldsOf(t *testing.T, err error) []apierr.FieldError {
@@ -34,16 +35,16 @@ func TestRules(t *testing.T) {
 		{"required empty", func(v *Validator) { v.Required("first_name", "") }, "required", "The first name field is required."},
 		{"length ok", func(v *Validator) { v.Length("name", "abc", 1, 3) }, "", ""},
 		{"length counts characters", func(v *Validator) { v.Length("name", "ééé", 1, 3) }, "", ""},
-		{"length too long", func(v *Validator) { v.Length("name", "abcd", 1, 3) }, "between", "The name field must be between 1 and 3 characters."},
+		{"length too long", func(v *Validator) { v.Length("name", "abcd", 1, 3) }, "between", "The name must be between 1 and 3 characters."},
 		{"length too short", func(v *Validator) { v.Length("name", "", 1, 3) }, "between", ""},
 		{"matches ok", func(v *Validator) { v.Matches("slug", "abc", re) }, "", ""},
-		{"matches fails", func(v *Validator) { v.Matches("slug", "ab1", re) }, "regex", "The slug field format is invalid."},
+		{"matches fails", func(v *Validator) { v.Matches("slug", "ab1", re) }, "regex", "The slug format is invalid."},
 		{"oneof ok", func(v *Validator) { v.OneOf("signal", "kill", "start", "stop", "kill") }, "", ""},
 		{"oneof fails", func(v *Validator) { v.OneOf("signal", "reboot", "start", "stop") }, "in", "The selected signal is invalid."},
 		{"oneof is case sensitive", func(v *Validator) { v.OneOf("signal", "START", "start") }, "in", ""},
 		{"int ok", func(v *Validator) { v.IntRange("per_page", 50, 1, 100) }, "", ""},
 		{"int at the limits", func(v *Validator) { v.IntRange("per_page", 100, 1, 100); v.IntRange("page", 1, 1, 100) }, "", ""},
-		{"int too small", func(v *Validator) { v.IntRange("per_page", 0, 1, 100) }, "between", "The per page field must be between 1 and 100."},
+		{"int too small", func(v *Validator) { v.IntRange("per_page", 0, 1, 100) }, "between", "The per page must be between 1 and 100."},
 		{"int too large", func(v *Validator) { v.IntRange("per_page", 101, 1, 100) }, "between", ""},
 		{"uuid ok", func(v *Validator) { v.UUID("uuid", "9f4d2c10-0000-4000-8000-000000000001") }, "", ""},
 		{"uuid upper case ok", func(v *Validator) { v.UUID("uuid", "9F4D2C10-0000-4000-8000-00000000000A") }, "", ""},
@@ -51,10 +52,23 @@ func TestRules(t *testing.T) {
 		{"uuid with trailing newline", func(v *Validator) { v.UUID("uuid", "9f4d2c10-0000-4000-8000-000000000001\n") }, "uuid", ""},
 		{"uuid path traversal", func(v *Validator) { v.UUID("uuid", "../../etc/passwd") }, "uuid", ""},
 		{"email ok", func(v *Validator) { v.Email("email", "ada@example.com") }, "", ""},
-		{"email with display name", func(v *Validator) { v.Email("email", "Ada <ada@example.com>") }, "email", "The email field must be a valid email address."},
+		{"email with display name", func(v *Validator) { v.Email("email", "Ada <ada@example.com>") }, "email", "The email must be a valid email address."},
 		{"email without domain", func(v *Validator) { v.Email("email", "ada") }, "email", ""},
 		{"email with space", func(v *Validator) { v.Email("email", "a da@example.com") }, "email", ""},
 		{"email too long", func(v *Validator) { v.Email("email", strings.Repeat("a", 190)+"@x.io") }, "email", ""},
+		{"sent ok", func(v *Validator) { v.Sent("name", field.Valid) }, "", ""},
+		{"sent absent", func(v *Validator) { v.Sent("first_name", field.Absent) }, "required", "The first name field is required."},
+		{"sent null", func(v *Validator) { v.Sent("name", field.Null) }, "required", ""},
+		{"sent invalid is left to the type check", func(v *Validator) { v.Sent("name", field.Invalid) }, "", ""},
+		{"string ok", func(v *Validator) { v.Type("name", field.Valid, KindString, false) }, "", ""},
+		{"string absent", func(v *Validator) { v.Type("name", field.Absent, KindString, false) }, "", ""},
+		{"string null not nullable", func(v *Validator) { v.Type("language", field.Null, KindString, false) }, "string", "The language must be a string."},
+		{"string null nullable", func(v *Validator) { v.Type("password", field.Null, KindString, true) }, "", ""},
+		{"string invalid even if nullable", func(v *Validator) { v.Type("password", field.Invalid, KindString, true) }, "string", ""},
+		{"integer invalid", func(v *Validator) { v.Type("per_page", field.Invalid, KindInteger, false) }, "integer", "The per page must be an integer."},
+		{"number invalid", func(v *Validator) { v.Type("memory", field.Invalid, KindNumber, false) }, "numeric", "The memory must be a number."},
+		{"boolean invalid", func(v *Validator) { v.Type("root_admin", field.Invalid, KindBoolean, false) }, "boolean", "The root admin field must be true or false."},
+		{"boolean null not nullable", func(v *Validator) { v.Type("public", field.Null, KindBoolean, false) }, "boolean", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

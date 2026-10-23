@@ -2,7 +2,6 @@ package servers
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"regexp"
 	"sort"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 	"github.com/Helles01/raptor-panel/internal/ids"
 	"github.com/Helles01/raptor-panel/internal/nodes"
 )
@@ -26,13 +26,9 @@ const (
 )
 
 // FieldError is a refusal that belongs to one field of the request, so that the API can say which.
-type FieldError struct{ Field, Message string }
+type FieldError = fielderr.Error
 
-func (e *FieldError) Error() string { return e.Field + ": " + e.Message }
-
-func fieldErr(field, format string, a ...any) error {
-	return &FieldError{Field: field, Message: fmt.Sprintf(format, a...)}
-}
+func fieldErr(field, format string, a ...any) error { return fielderr.New(field, format, a...) }
 
 const maxCPUSetIndex = 4095
 
@@ -163,16 +159,32 @@ func hasControl(s string) bool {
 	return strings.ContainsFunc(s, func(r rune) bool { return r < ' ' || r == 0x7f })
 }
 
-// Validate checks every field against simple allow-lists. The first problem is the error, a *FieldError.
-func (n NewServer) Validate() error {
-	name := strings.TrimSpace(n.Name)
+func validateName(name string) error {
 	switch {
 	case name == "" || utf8.RuneCountInString(name) > MaxNameLength:
 		return fieldErr("name", "must be 1 to %d characters", MaxNameLength)
 	case !utf8.ValidString(name) || hasControl(name):
 		return fieldErr("name", "must not contain control characters")
-	case utf8.RuneCountInString(n.Description) > MaxDescriptionLength || !utf8.ValidString(n.Description) || strings.ContainsRune(n.Description, 0):
+	}
+	return nil
+}
+
+func validateDescription(description string) error {
+	if utf8.RuneCountInString(description) > MaxDescriptionLength || !utf8.ValidString(description) || strings.ContainsRune(description, 0) {
 		return fieldErr("description", "must be valid text of at most %d characters", MaxDescriptionLength)
+	}
+	return nil
+}
+
+// Validate checks every field against simple allow-lists. The first problem is the error, a *FieldError.
+func (n NewServer) Validate() error {
+	if err := validateName(strings.TrimSpace(n.Name)); err != nil {
+		return err
+	}
+	if err := validateDescription(n.Description); err != nil {
+		return err
+	}
+	switch {
 	case n.OwnerID == 0:
 		return fieldErr("user", "is required")
 	case n.EggID == 0:

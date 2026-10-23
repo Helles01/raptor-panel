@@ -15,7 +15,6 @@ import (
 const (
 	// MaxBatch is the most events one request may hold. The node sends 100 at a time.
 	MaxBatch         = 1000
-	MaxEventLength   = 191
 	MaxMetadataBytes = 16384
 	// MaxFutureSkew is how far ahead of the panel's clock a time may be before it is not believed.
 	MaxFutureSkew = 10 * time.Minute
@@ -27,10 +26,7 @@ const (
 // ErrTooMany is returned for a request with more than MaxBatch events.
 var ErrTooMany = fmt.Errorf("a request may hold at most %d events", MaxBatch)
 
-var (
-	uuidPattern  = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
-	eventPattern = regexp.MustCompile(`^server:[a-z0-9][a-z0-9_.:-]*$`)
-)
+var uuidPattern = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
 
 // RawEvent is one event as the node sends it, in the body {"data": [...]}.
 type RawEvent struct {
@@ -65,7 +61,8 @@ type Result struct {
 // node keeps sending an unconfirmed batch from its oldest event on, so one bad event answered with an error would hold back every
 // later one for good (C-034). The caller should log how many were skipped.
 //
-// Only events whose name starts with "server:" are taken, so a node cannot write the events of sign-ins or of administration.
+// Only the events a node sends itself are taken (DaemonEvent), so a node cannot write the events of sign-ins, of
+// administration or of what the panel did for a user.
 // A time that cannot be read, or that is too far ahead, is replaced by now, with the original kept in the properties.
 func Normalize(events []RawEvent, now time.Time) (Result, error) {
 	if len(events) > MaxBatch {
@@ -85,7 +82,7 @@ func Normalize(events []RawEvent, now time.Time) (Result, error) {
 }
 
 func normalizeEvent(e RawEvent, now time.Time) (Entry, bool) {
-	if !uuidPattern.MatchString(e.Server) || len(e.Event) > MaxEventLength || !eventPattern.MatchString(e.Event) {
+	if !uuidPattern.MatchString(e.Server) || !DaemonEvent(e.Event) {
 		return Entry{}, false
 	}
 	if e.User != "" && !uuidPattern.MatchString(e.User) {

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 )
 
 func validNode() NewNode {
@@ -39,7 +41,7 @@ func TestNewNodeValidate(t *testing.T) {
 		{"name too long", func(n *NewNode) { n.Name = strings.Repeat("a", 101) }, "name"},
 		{"name with newline", func(n *NewNode) { n.Name = "node\n1" }, "name"},
 		{"description with NUL", func(n *NewNode) { n.Description = "a\x00b" }, "description"},
-		{"no location", func(n *NewNode) { n.LocationID = 0 }, "location"},
+		{"no location", func(n *NewNode) { n.LocationID = 0 }, "location_id"},
 		{"empty fqdn", func(n *NewNode) { n.FQDN = "" }, "fqdn"},
 		{"fqdn with scheme", func(n *NewNode) { n.FQDN = "https://node1.example.com" }, "fqdn"},
 		{"fqdn with port", func(n *NewNode) { n.FQDN = "node1.example.com:8080" }, "fqdn"},
@@ -49,17 +51,17 @@ func TestNewNodeValidate(t *testing.T) {
 		{"fqdn too long", func(n *NewNode) { n.FQDN = strings.Repeat("a.", 130) + "com" }, "fqdn"},
 		{"unknown scheme", func(n *NewNode) { n.Scheme = "ftp" }, "scheme"},
 		{"empty scheme", func(n *NewNode) { n.Scheme = "" }, "scheme"},
-		{"zero memory", func(n *NewNode) { n.Memory = 0 }, "memory must"},
-		{"memory overallocation below -1", func(n *NewNode) { n.MemoryOverallocate = -2 }, "memory overallocation"},
-		{"zero disk", func(n *NewNode) { n.Disk = 0 }, "disk must"},
-		{"disk overallocation below -1", func(n *NewNode) { n.DiskOverallocate = -5 }, "disk overallocation"},
-		{"relative daemon base", func(n *NewNode) { n.DaemonBase = "var/lib/volumes" }, "daemon base"},
-		{"daemon base with parent segment", func(n *NewNode) { n.DaemonBase = "/var/lib/../../etc" }, "daemon base"},
-		{"daemon base with space", func(n *NewNode) { n.DaemonBase = "/var/lib/my volumes" }, "daemon base"},
-		{"daemon base is only a slash", func(n *NewNode) { n.DaemonBase = "/" }, "daemon base"},
-		{"sftp port zero", func(n *NewNode) { n.DaemonSFTP = 0 }, "SFTP port"},
-		{"daemon port too large", func(n *NewNode) { n.DaemonListen = 65536 }, "daemon port"},
-		{"zero upload size", func(n *NewNode) { n.UploadSize = 0 }, "upload size"},
+		{"zero memory", func(n *NewNode) { n.Memory = 0 }, "memory"},
+		{"memory overallocation below -1", func(n *NewNode) { n.MemoryOverallocate = -2 }, "memory_overallocate"},
+		{"zero disk", func(n *NewNode) { n.Disk = 0 }, "disk"},
+		{"disk overallocation below -1", func(n *NewNode) { n.DiskOverallocate = -5 }, "disk_overallocate"},
+		{"relative daemon base", func(n *NewNode) { n.DaemonBase = "var/lib/volumes" }, "daemon_base"},
+		{"daemon base with parent segment", func(n *NewNode) { n.DaemonBase = "/var/lib/../../etc" }, "daemon_base"},
+		{"daemon base with space", func(n *NewNode) { n.DaemonBase = "/var/lib/my volumes" }, "daemon_base"},
+		{"daemon base is only a slash", func(n *NewNode) { n.DaemonBase = "/" }, "daemon_base"},
+		{"sftp port zero", func(n *NewNode) { n.DaemonSFTP = 0 }, "daemon_sftp"},
+		{"daemon port too large", func(n *NewNode) { n.DaemonListen = 65536 }, "daemon_listen"},
+		{"zero upload size", func(n *NewNode) { n.UploadSize = 0 }, "upload_size"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -68,11 +70,11 @@ func TestNewNodeValidate(t *testing.T) {
 
 			err := n.Validate()
 
-			switch {
+			switch fe, ok := fielderr.Of(err); {
 			case tt.wantErr == "" && err != nil:
 				t.Errorf("unexpected error: %v", err)
-			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
-				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			case tt.wantErr != "" && (!ok || fe.Field != tt.wantErr):
+				t.Errorf("error = %v, want one about the field %q", err, tt.wantErr)
 			}
 		})
 	}

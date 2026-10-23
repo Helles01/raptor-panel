@@ -11,10 +11,10 @@ The endpoints and their lookups (the server of the calling node only, the users)
 
 ## What matches the reference
 The new status and the suspended rule, `installed_at` set by every report, the "first installation or reinstallation" notion for the two
-e-mail switches, the `server:` prefix rule, the default address `127.0.0.1`, the time zone handling (UTC), the fallback to the time of arrival
+e-mail switches, the rule that only `server:` events are taken (tightened since to the events Wings sends, `activity.DaemonEvent`, C-047; see 07e), the default address `127.0.0.1`, the time zone handling (UTC), the fallback to the time of arrival
 with `original_timestamp`, and that events for servers that are not the node's are silently left out (the handler's lookup).
 
-## Deliberate differences (`docs/compat.md`: C-033, C-034)
+## Deliberate differences (`docs/compat.md`: C-033, C-034, C-047)
 A report is taken only from a server that is waiting for it, no "installed" e-mail for failures, and an activity request that survives a bad event.
 Also: an empty set of properties is stored as `{}` (the reference writes `[]`, PHP's empty array); this is not a difference the interface sees.
 

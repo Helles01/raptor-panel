@@ -66,6 +66,12 @@ func TestNormalizeSkipsWhatCannotBeUsed(t *testing.T) {
 		{"a space in the name", func(e *RawEvent) { e.Event = "server:sftp write" }},
 		{"upper case in the name", func(e *RawEvent) { e.Event = "server:Sftp.write" }},
 		{"a newline in the name", func(e *RawEvent) { e.Event = "server:sftp.write\n" }},
+		{"a panel event the node must not forge", func(e *RawEvent) { e.Event = "server:subuser.create" }},
+		{"a backup event of the panel", func(e *RawEvent) { e.Event = "server:backup.delete" }},
+		{"a startup edit of the panel", func(e *RawEvent) { e.Event = "server:startup.edit" }},
+		{"a file event of the panel API", func(e *RawEvent) { e.Event = "server:file.write" }},
+		{"the panel's own SFTP refusal", func(e *RawEvent) { e.Event = "server:sftp.denied" }},
+		{"an SFTP event that does not exist", func(e *RawEvent) { e.Event = "server:sftp.chmod" }},
 		{"a name that is too long", func(e *RawEvent) { e.Event = "server:" + strings.Repeat("a", 190) }},
 		{"no server", func(e *RawEvent) { e.Server = "" }},
 		{"a server that is not a UUID", func(e *RawEvent) { e.Server = "abcd1234" }},
@@ -101,8 +107,7 @@ func TestNormalizeAcceptsWhatItShould(t *testing.T) {
 		{"IPv4 inside IPv6", func(e *RawEvent) { e.IP = "::ffff:203.0.113.9" }, "203.0.113.9", userUUID},
 		{"a zone is dropped", func(e *RawEvent) { e.IP = "fe80::1%eth0" }, "fe80::1", userUUID},
 		{"upper-case UUIDs are stored in lower case", func(e *RawEvent) { e.Server = strings.ToUpper(serverUUID); e.User = strings.ToUpper(userUUID) }, "203.0.113.9", userUUID},
-		{"the longest event name", func(e *RawEvent) { e.Event = "server:" + strings.Repeat("a", 184) }, "203.0.113.9", userUUID},
-		{"a name with dashes, dots and colons", func(e *RawEvent) { e.Event = "server:file.create-directory" }, "203.0.113.9", userUUID},
+		{"a name with a dash", func(e *RawEvent) { e.Event = "server:sftp.create-directory" }, "203.0.113.9", userUUID},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -219,18 +224,18 @@ func TestOriginalTimestampIsBounded(t *testing.T) {
 func TestOneBadEventDoesNotHoldBackTheOthers(t *testing.T) {
 	events := make([]RawEvent, 100)
 	for i := range events {
-		events[i] = event(func(e *RawEvent) { e.Event = fmt.Sprintf("server:sftp.write-%d", i) })
+		events[i] = event(func(e *RawEvent) { e.Metadata = json.RawMessage(fmt.Sprintf(`{"n":%d}`, i)) })
 	}
 	events[40] = event(func(e *RawEvent) { e.IP = "garbage" })
-	events[41] = event(func(e *RawEvent) { e.Event = "auth:login" })
+	events[41] = event(func(e *RawEvent) { e.Event = "server:subuser.create" })
 
 	res, err := Normalize(events, now)
 	if err != nil || res.Skipped != 2 || len(res.Entries) != 98 {
 		t.Fatalf("result: %d entries, %d skipped, %v; want 98 and 2", len(res.Entries), res.Skipped, err)
 	}
 	// Order is kept.
-	if res.Entries[39].Event != "server:sftp.write-39" || res.Entries[40].Event != "server:sftp.write-42" {
-		t.Errorf("order changed around the skipped events: %s, %s", res.Entries[39].Event, res.Entries[40].Event)
+	if res.Entries[39].Properties != `{"n":39}` || res.Entries[40].Properties != `{"n":42}` {
+		t.Errorf("order changed around the skipped events: %s, %s", res.Entries[39].Properties, res.Entries[40].Properties)
 	}
 }
 

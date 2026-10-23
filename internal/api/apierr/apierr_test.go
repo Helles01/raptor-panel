@@ -133,3 +133,28 @@ func TestRetryAfterIsRoundedUp(t *testing.T) {
 		t.Error("Retry-After must only be set for throttled responses")
 	}
 }
+
+func TestInvalidQueryErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *Error
+		code string
+	}{
+		{"filter", InvalidFilter("no such filter"), "InvalidFilterQuery"},
+		{"sort", InvalidSort("no such sort"), "InvalidSortQuery"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err.Status != 400 || tt.err.Code != tt.code {
+				t.Errorf("got %d %s, want 400 %s", tt.err.Status, tt.err.Code, tt.code)
+			}
+			rec := httptest.NewRecorder()
+
+			Write(rec, tt.err)
+
+			if !strings.Contains(rec.Body.String(), `"code":"`+tt.code+`"`) || rec.Code != 400 {
+				t.Errorf("response = %d %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

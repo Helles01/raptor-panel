@@ -72,7 +72,10 @@ func TestValidate(t *testing.T) {
 		{"no domain dot", func(in *Input) { in.Email = "admin@localhost" }, "dot"},
 		{"domain starting with a dot", func(in *Input) { in.Email = "admin@.example.com" }, "email"},
 		{"email with space", func(in *Input) { in.Email = "ad min@example.com" }, "email"},
-		{"email too long", func(in *Input) { in.Email = strings.Repeat("a", 190) + "@x.io" }, "3 to 191"},
+		{"email too long", func(in *Input) { in.Email = strings.Repeat("a", 190) + "@x.io" }, "at most 191"},
+		{"email of 192 characters", func(in *Input) { in.Email = strings.Repeat("a", 187) + "@x.io" }, "at most 191"},
+		{"email of 191 characters", func(in *Input) { in.Email = strings.Repeat("a", 186) + "@x.io" }, ""},
+		{"email of 191 multibyte characters", func(in *Input) { in.Email = strings.Repeat("é", 186) + "@x.io" }, ""},
 
 		{"username too short", func(in *Input) { in.Username = "ab" }, "username"},
 		{"username starts with dash", func(in *Input) { in.Username = "-admin" }, "username"},
@@ -82,14 +85,18 @@ func TestValidate(t *testing.T) {
 		{"username too long", func(in *Input) { in.Username = strings.Repeat("a", 192) }, "username"},
 		{"empty username", func(in *Input) { in.Username = "" }, "username"},
 
-		{"empty first name", func(in *Input) { in.FirstName = "" }, "first name"},
-		{"first name too long", func(in *Input) { in.FirstName = strings.Repeat("é", 192) }, "first name"},
-		{"last name with control character", func(in *Input) { in.LastName = "Ad\x00min" }, "last name"},
+		{"empty first name", func(in *Input) { in.FirstName = "" }, "first_name"},
+		{"first name too long", func(in *Input) { in.FirstName = strings.Repeat("é", 192) }, "first_name"},
+		{"last name with control character", func(in *Input) { in.LastName = "Ad\x00min" }, "last_name"},
 
 		{"bad language", func(in *Input) { in.Language = "english" }, "language"},
 		{"language with path", func(in *Input) { in.Language = "../en" }, "language"},
 
 		{"short password", func(in *Input) { in.Password = "short" }, "at least 8"},
+		{"password of 7 characters", func(in *Input) { in.Password = "1234567" }, "at least 8"},
+		{"password of 8 characters", func(in *Input) { in.Password = "12345678" }, ""},
+		{"password of 7 multibyte characters", func(in *Input) { in.Password = "ééééééé" }, "at least 8"},
+		{"password of 8 multibyte characters", func(in *Input) { in.Password = "éééééééé" }, ""},
 		{"empty password", func(in *Input) { in.Password = "" }, "at least 8"},
 		{"password of 72 bytes", func(in *Input) { in.Password = strings.Repeat("a", 72) }, ""},
 		{"password of 73 bytes", func(in *Input) { in.Password = strings.Repeat("a", 73) }, "at most 72 bytes"},
