@@ -176,6 +176,27 @@ func validateDescription(description string) error {
 	return nil
 }
 
+func validateImage(image string) error {
+	if !imagePattern.MatchString(image) {
+		return fieldErr("docker_image", "must be 1 to %d letters, digits and . _ / : @ -", MaxImageLength)
+	}
+	return nil
+}
+
+func validateStartup(startup string) error {
+	if strings.TrimSpace(startup) == "" || len(startup) > MaxStartupLength || strings.ContainsRune(startup, 0) || !utf8.ValidString(startup) {
+		return fieldErr("startup", "must be a command of at most %d bytes", MaxStartupLength)
+	}
+	return nil
+}
+
+func validateExternalID(id string) error {
+	if l := utf8.RuneCountInString(id); l < 1 || l > 191 || !utf8.ValidString(id) || hasControl(id) {
+		return fieldErr("external_id", "must be 1 to 191 characters without control characters")
+	}
+	return nil
+}
+
 // Validate checks every field against simple allow-lists. The first problem is the error, a *FieldError.
 func (n NewServer) Validate() error {
 	if err := validateName(strings.TrimSpace(n.Name)); err != nil {
@@ -189,15 +210,16 @@ func (n NewServer) Validate() error {
 		return fieldErr("user", "is required")
 	case n.EggID == 0:
 		return fieldErr("egg", "is required")
-	case !imagePattern.MatchString(n.Image):
-		return fieldErr("docker_image", "must be 1 to %d letters, digits and . _ / : @ -", MaxImageLength)
-	case strings.TrimSpace(n.Startup) == "" || len(n.Startup) > MaxStartupLength || strings.ContainsRune(n.Startup, 0) || !utf8.ValidString(n.Startup):
-		return fieldErr("startup", "must be a command of at most %d bytes", MaxStartupLength)
+	}
+	if err := validateImage(n.Image); err != nil {
+		return err
+	}
+	if err := validateStartup(n.Startup); err != nil {
+		return err
 	}
 	if n.ExternalID != nil {
-		id := *n.ExternalID
-		if l := utf8.RuneCountInString(id); l < 1 || l > 191 || !utf8.ValidString(id) || hasControl(id) {
-			return fieldErr("external_id", "must be 1 to 191 characters without control characters")
+		if err := validateExternalID(*n.ExternalID); err != nil {
+			return err
 		}
 	}
 	if err := n.Limits.Validate(); err != nil {

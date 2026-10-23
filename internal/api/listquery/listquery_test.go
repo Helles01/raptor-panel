@@ -335,14 +335,14 @@ func TestEverySpecNameIsASafeIdentifier(t *testing.T) {
 	safe := regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 	specs := map[string]Spec{
 		"Users": Users, "Nodes": Nodes, "Locations": Locations, "Servers": Servers, "Allocations": Allocations,
-		"Nests": Nests, "Eggs": Eggs, "ServerDatabases": ServerDatabases,
+		"Nests": Nests, "Eggs": Eggs, "ServerDatabases": ServerDatabases, "ClientServers": ClientServers, "ClientActivity": ClientActivity,
 	}
 	for name, s := range specs {
 		if !safe.MatchString(s.Table) {
 			t.Errorf("%s: table %q is not a plain identifier", name, s.Table)
 		}
 		for _, f := range s.Filters {
-			if !safe.MatchString(f.Name) {
+			if f.Match != Search && !safe.MatchString(f.Name) {
 				t.Errorf("%s: filter %q is not a plain identifier", name, f.Name)
 			}
 		}
@@ -412,5 +412,138 @@ func TestAKeyWithoutValuesIsHarmless(t *testing.T) {
 	got, err = Parse(url.Values{"filter[server_id]": {}}, Allocations)
 	if err != nil || len(got.Conditions) != 1 || got.Conditions[0].Values != nil {
 		t.Errorf("Parse = %+v, %v, want one Owner condition for the free allocations", got, err)
+	}
+}
+
+func TestSearchFilter(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  []Condition
+	}{
+		{"a text", "filter[*]=survival", []Condition{{"*", Search, []string{"survival"}}}},
+		{"commas stay in the text", "filter[*]=my,server", []Condition{{"*", Search, []string{"my,server"}}}},
+		{"empty adds nothing", "filter[*]=", nil},
+		{"encoded star", "filter%5B*%5D=abc", []Condition{{"*", Search, []string{"abc"}}}},
+		{"only the first value counts", "filter[*]=a&filter[*]=b", []Condition{{"*", Search, []string{"a"}}}},
+		{"with a column filter", "filter[name]=x&filter[*]=y", []Condition{
+			{"name", Partial, []string{"x"}}, {"*", Search, []string{"y"}},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(query(t, tt.query), ClientServers)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if !reflect.DeepEqual(got.Conditions, tt.want) {
+				t.Errorf("conditions = %+v\nwant         %+v", got.Conditions, tt.want)
+			}
+		})
+	}
+}
+
+func TestSearchTakesLongTextWithManyCommas(t *testing.T) {
+	_, err := Parse(query(t, "filter[*]="+strings.Repeat("a,", MaxValues+5)), ClientServers)
+
+	if err != nil {
+		t.Errorf("a search text is not a list of alternatives: %v", err)
+	}
+}
+
+func TestSearchIsNotOfferedByTheOtherSpecs(t *testing.T) {
+	if _, err := Parse(query(t, "filter[*]=x"), Users); apiErr(t, err).Code != "InvalidFilterQuery" {
+		t.Errorf("err = %v, want InvalidFilterQuery", err)
+	}
+}
+
+func TestSearchWhere(t *testing.T) {
+	const textSQL = "(`servers`.`uuid` = ? OR `servers`.`uuid` LIKE ? ESCAPE '|' OR `servers`.`uuidShort` = ? OR `servers`.`external_id` = ? OR LOWER(`servers`.`name`) LIKE ? ESCAPE '|')"
+	const sub = " IN (SELECT `server_id` FROM `allocations` WHERE `server_id` IS NOT NULL AND "
+	tests := []struct {
+		name     string
+		value    string
+		wantSQL  string
+		wantArgs []any
+	}{
+		{"a name", "Survival", textSQL, []any{"Survival", "Survival%", "Survival", "Survival", "%survival%"}},
+		{"an uuid prefix", "9f4d2c10", textSQL, []any{"9f4d2c10", "9f4d2c10%", "9f4d2c10", "9f4d2c10", "%9f4d2c10%"}},
+		{"wildcards are plain characters", "50%_|", textSQL, []any{"50%_|", "50|%|_||%", "50%_|", "50%_|", "%50|%|_||%"}},
+		{"an address", "10.0.0.5", "`servers`.`id`" + sub + "`ip` = ?)", []any{"10.0.0.5"}},
+		{"an address with a port", "10.0.0.5:2556", "`servers`.`id`" + sub + "`ip` = ? AND `port` LIKE ?)", []any{"10.0.0.5", "2556%"}},
+		{"a port", ":255", "`servers`.`id`" + sub + "`port` LIKE ?)", []any{"255%"}},
+		{"not an address: four numbers and a letter", "10.0.0.5a", textSQL, []any{"10.0.0.5a", "10.0.0.5a%", "10.0.0.5a", "10.0.0.5a", "%10.0.0.5a%"}},
+		{"not an address: a port without a colon", "25565", textSQL, []any{"25565", "25565%", "25565", "25565", "%25565%"}},
+		{"not an address: too many digits in the port", ":123456", textSQL, []any{":123456", ":123456%", ":123456", ":123456", "%:123456%"}},
+		{"not an address: junk before it", "a10.0.0.5", textSQL, []any{"a10.0.0.5", "a10.0.0.5%", "a10.0.0.5", "a10.0.0.5", "%a10.0.0.5%"}},
+		{"not an address: junk before it, too many digits", "1234.0.0.5", textSQL, []any{"1234.0.0.5", "1234.0.0.5%", "1234.0.0.5", "1234.0.0.5", "%1234.0.0.5%"}},
+		{"an address with a six digit port", "10.0.0.5:123456", textSQL, []any{"10.0.0.5:123456", "10.0.0.5:123456%", "10.0.0.5:123456", "10.0.0.5:123456", "%10.0.0.5:123456%"}},
+		{"not an address: a trailing newline", "10.0.0.5\n", textSQL, []any{"10.0.0.5\n", "10.0.0.5\n%", "10.0.0.5\n", "10.0.0.5\n", "%10.0.0.5\n%"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql, args := searchWhere("servers", tt.value)
+
+			if sql != tt.wantSQL || !reflect.DeepEqual(args, tt.wantArgs) {
+				t.Errorf("searchWhere(%q) =\n%s %v\nwant\n%s %v", tt.value, sql, args, tt.wantSQL, tt.wantArgs)
+			}
+			if strings.Count(sql, "?") != len(args) {
+				t.Errorf("%d placeholders for %d arguments", strings.Count(sql, "?"), len(args))
+			}
+		})
+	}
+}
+
+func TestWhereJoinsTheSearchWithTheOtherFilters(t *testing.T) {
+	q, err := Parse(query(t, "filter[name]=x&filter[*]=10.0.0.5"), ClientServers)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	sql, args := q.Where()
+
+	want := "(LOWER(`servers`.`name`) LIKE ? ESCAPE '|') AND `servers`.`id` IN (SELECT `server_id` FROM `allocations` WHERE `server_id` IS NOT NULL AND `ip` = ?)"
+	if sql != want || !reflect.DeepEqual(args, []any{"%x%", "10.0.0.5"}) {
+		t.Errorf("Where() = %q, %v", sql, args)
+	}
+}
+
+func TestSearchValuesNeverReachTheSQL(t *testing.T) {
+	q, _ := Parse(query(t, "filter[*]="+url.QueryEscape("x' OR 1=1 --")), ClientServers)
+
+	sql, _ := q.Where()
+
+	if strings.Contains(sql, "OR 1=1") {
+		t.Errorf("the text got into the SQL: %s", sql)
+	}
+}
+
+func TestClientListSpecs(t *testing.T) {
+	if got := ClientActivity.Sorts; !reflect.DeepEqual(got, []string{"timestamp"}) {
+		t.Errorf("activity sorts = %v", got)
+	}
+	if len(ClientActivity.Filters) != 1 || ClientActivity.Filters[0] != (Filter{"event", Partial}) {
+		t.Errorf("activity filters = %v", ClientActivity.Filters)
+	}
+	names := make([]string, len(ClientServers.Filters))
+	for i, f := range ClientServers.Filters {
+		names[i] = f.Name
+	}
+	if !reflect.DeepEqual(names, []string{"uuid", "name", "description", "external_id", "*"}) {
+		t.Errorf("server filters = %v", names)
+	}
+	if len(ClientServers.Sorts) != 0 {
+		t.Error("the client's server list offers no sort")
+	}
+	if _, err := Parse(query(t, "sort=id"), ClientServers); apiErr(t, err).Code != "InvalidSortQuery" {
+		t.Errorf("err = %v, want InvalidSortQuery", err)
+	}
+}
+
+func TestASearchKeyWithoutValuesIsHarmless(t *testing.T) {
+	got, err := Parse(url.Values{"filter[*]": {}}, ClientServers)
+
+	if err != nil || len(got.Conditions) != 0 {
+		t.Errorf("Parse = %+v, %v, want no condition and no panic", got, err)
 	}
 }

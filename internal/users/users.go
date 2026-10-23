@@ -199,3 +199,6 @@ func validateName(field, value string) error {
 func hasControl(s string) bool {
 	return strings.ContainsFunc(s, func(r rune) bool { return r < ' ' || r == 0x7f })
 }
+
+// ValidateEmail checks an address the way a new account's is checked. The error is a *fielderr.Error on "email".
+func ValidateEmail(email string) error { return validateEmail(email) }

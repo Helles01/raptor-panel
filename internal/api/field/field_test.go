@@ -207,3 +207,48 @@ func TestLongTextIsKept(t *testing.T) {
 		t.Error("a long value must be passed on whole: length limits belong to the validator")
 	}
 }
+
+func TestText(t *testing.T) {
+	tests := []struct {
+		doc   string
+		state State
+		value string
+	}{
+		{`{"v":"paper.jar"}`, Valid, "paper.jar"},
+		{`{"v":"  padded "}`, Valid, "padded"},
+		{`{"v":25565}`, Valid, "25565"},
+		{`{"v":-1}`, Valid, "-1"},
+		{`{"v":0}`, Valid, "0"},
+		{`{"v":1.5}`, Valid, "1.5"},
+		{`{"v":2048.0}`, Valid, "2048"},
+		{`{"v":1e3}`, Valid, "1000"},
+		{`{"v":12345678901234567890}`, Valid, "12345678901234567000"},
+		{`{"v":9223372036854775807}`, Valid, "9223372036854775807"},
+		{`{"v":null}`, Null, ""},
+		{`{"v":""}`, Null, ""},
+		{`{"v":"   "}`, Null, ""},
+		{`{"v":true}`, Invalid, ""},
+		{`{"v":false}`, Invalid, ""},
+		{`{"v":["a"]}`, Invalid, ""},
+		{`{"v":{"a":1}}`, Invalid, ""},
+		{`{"v":1e999}`, Invalid, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.doc, func(t *testing.T) {
+			var b struct{ V Text }
+			if err := json.Unmarshal([]byte(tt.doc), &b); err != nil {
+				t.Fatalf("decoding failed: %v", err)
+			}
+			if b.V.State != tt.state || b.V.V != tt.value {
+				t.Errorf("got %+v, want state %d value %q", b.V, tt.state, tt.value)
+			}
+		})
+	}
+}
+
+func TestTextAbsent(t *testing.T) {
+	var b struct{ V Text }
+	if err := json.Unmarshal([]byte(`{}`), &b); err != nil || b.V.State != Absent {
+		t.Errorf("got %+v, %v", b.V, err)
+	}
+}

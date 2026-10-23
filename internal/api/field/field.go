@@ -168,3 +168,31 @@ func (f *Bool) UnmarshalJSON(b []byte) error {
 	}
 	return nil
 }
+
+// Text is a value that is kept as text but may be sent as a number, such as the value of a startup variable ("25565" or
+// 25565). A number is written as its digits (a whole one without a fraction or exponent). Anything else that is not a string, a
+// flag included, is Invalid: the reference would turn true into "1" and false into "", which no rule can make sense of.
+type Text struct {
+	State State
+	V     string
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (t *Text) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) > 0 && (b[0] == '-' || (b[0] >= '0' && b[0] <= '9')) {
+		f, err := strconv.ParseFloat(string(b), 64)
+		if err != nil {
+			*t = Text{State: Invalid}
+			return nil
+		}
+		if n, err := strconv.ParseInt(string(b), 10, 64); err == nil {
+			*t = Text{State: Valid, V: strconv.FormatInt(n, 10)}
+			return nil
+		}
+		*t = Text{State: Valid, V: strconv.FormatFloat(f, 'f', -1, 64)}
+		return nil
+	}
+	*t = Text(readString(b, true))
+	return nil
+}

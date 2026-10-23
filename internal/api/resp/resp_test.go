@@ -189,3 +189,30 @@ func TestPageParams(t *testing.T) {
 		})
 	}
 }
+
+func TestPageParamsWith(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		def, max    int
+		wantPerPage int
+		wantErr     bool
+	}{
+		{"its own default", "", 25, 100, 25, false},
+		{"the backups' default", "", 20, 50, 20, false},
+		{"at its own maximum", "per_page=50", 20, 50, 50, false},
+		{"above its own maximum", "per_page=51", 20, 50, 20, true},
+		{"above the maximum of the others is fine here", "per_page=150", 25, 200, 150, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q, _ := url.ParseQuery(tt.query)
+
+			_, perPage, err := PageParamsWith(q, tt.def, tt.max)
+
+			if (err != nil) != tt.wantErr || perPage != tt.wantPerPage {
+				t.Errorf("per_page = %d, err = %v; want %d, error %v", perPage, err, tt.wantPerPage, tt.wantErr)
+			}
+		})
+	}
+}

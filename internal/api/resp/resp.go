@@ -139,7 +139,14 @@ func pageURL(u *url.URL, page int) string {
 // PageParams reads the page and per_page query parameters. Missing values default to page 1 and DefaultPerPage; a bad
 // value is a 422 for that field.
 func PageParams(q url.Values) (page, perPage int, err error) {
-	page, perPage = 1, DefaultPerPage
+	return PageParamsWith(q, DefaultPerPage, MaxPerPage)
+}
+
+// PageParamsWith is PageParams for a list that has its own default and largest page size: the activity lists show 25 and the
+// backups 20, and the backups allow at most 50. Where the reference clamps a larger per_page, this refuses it, so that a client
+// learns the limit.
+func PageParamsWith(q url.Values, defaultPerPage, maxPerPage int) (page, perPage int, err error) {
+	page, perPage = 1, defaultPerPage
 
 	v := validate.New()
 	read := func(field string, dst *int, min, max int64) {
@@ -158,10 +165,10 @@ func PageParams(q url.Values) (page, perPage int, err error) {
 		}
 	}
 	read("page", &page, 1, 1<<31-1)
-	read("per_page", &perPage, 1, MaxPerPage)
+	read("per_page", &perPage, 1, int64(maxPerPage))
 
 	if verr := v.Err(); verr != nil {
-		return 1, DefaultPerPage, verr
+		return 1, defaultPerPage, verr
 	}
 	return page, perPage, nil
 }

@@ -46,3 +46,20 @@ var (
 
 	ServerDatabases = Spec{Table: "databases", Includes: []string{"password", "host"}}
 )
+
+// The lists of the client API. The server list also takes filter[*], which looks for a text in several columns or for an
+// address and port; the activity lists are for the entries of one user or one server, which the handler fixes in the query.
+var (
+	ClientServers = Spec{
+		Table:    "servers",
+		Filters:  []Filter{{"uuid", Partial}, {"name", Partial}, {"description", Partial}, {"external_id", Partial}, {"*", Search}},
+		Includes: []string{"egg", "subusers"},
+	}
+
+	ClientActivity = Spec{
+		Table:    "activity_logs",
+		Filters:  []Filter{{"event", Partial}},
+		Sorts:    []string{"timestamp"},
+		Includes: []string{"actor"},
+	}
+)

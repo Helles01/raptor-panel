@@ -24,6 +24,9 @@ const (
 	// Owner is the server_id filter of allocations: a number selects the allocations of that server, anything else
 	// the free ones. The reference does the same, which lets a client ask for free allocations with filter[server_id]=.
 	Owner
+	// Search is the filter[*] of the client's server list: one text that is looked for in several columns, or an address
+	// and port in the allocations (see searchWhere). The text is not split at commas.
+	Search
 )
 
 // Filter is an allowed filter. Name is the query parameter and also the column.
@@ -138,6 +141,12 @@ func parseFilters(q url.Values, spec Spec) ([]Condition, error) {
 	for _, f := range spec.Filters {
 		raw, ok := asked[f.Name]
 		if !ok {
+			continue
+		}
+		if f.Match == Search {
+			if len(raw.values) > 0 && raw.values[0] != "" {
+				conds = append(conds, Condition{Column: f.Name, Match: Search, Values: []string{raw.values[0]}})
+			}
 			continue
 		}
 		values, array, err := splitValues(f.Name, raw)
@@ -274,8 +283,11 @@ func contains(list []string, s string) bool {
 // PartialPattern is the LIKE pattern for a Partial value: lower case, with the characters that mean something to LIKE
 // made literal. It goes with ESCAPE '|' (see Where).
 func PartialPattern(value string) string {
-	r := strings.NewReplacer("|", "||", "%", "|%", "_", "|_")
-	return "%" + r.Replace(strings.ToLower(value)) + "%"
+	return "%" + likeEscape(strings.ToLower(value)) + "%"
+}
+
+func likeEscape(value string) string {
+	return strings.NewReplacer("|", "||", "%", "|%", "_", "|_").Replace(value)
 }
 
 func quote(table, column string) string {
@@ -307,6 +319,10 @@ func (q Query) Where() (string, []any) {
 			for _, v := range c.Values {
 				args = append(args, v)
 			}
+		case Search:
+			sql, a := searchWhere(q.Table, c.Values[0])
+			parts = append(parts, sql)
+			args = append(args, a...)
 		case Owner:
 			if len(c.Values) == 0 {
 				parts = append(parts, col+" IS NULL")
@@ -336,4 +352,36 @@ func (q Query) OrderBy(tieBreaker string) string {
 		keys = append(keys, quote(q.Table, tieBreaker)+" ASC")
 	}
 	return "ORDER BY " + strings.Join(keys, ", ")
+}
+
+var (
+	addressSearch = regexp.MustCompile(`^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?$`)
+	portSearch    = regexp.MustCompile(`^:[0-9]{1,5}$`)
+)
+
+// searchWhere is the condition of the Search filter on the servers table. A text that is an IPv4 address, optionally with a
+// port, or only a port with its colon, is looked for in the allocations of the servers: the address must be equal and the port
+// must start with the digits, as in the reference. Anything else is looked for in the name (contains), and in the UUID (equal or
+// begins with), short UUID and external id (equal). The reference lets a "%" or "_" in the text act as a wildcard; here they are
+// ordinary characters.
+func searchWhere(table, value string) (string, []any) {
+	id := quote(table, "id")
+	if addressSearch.MatchString(value) || portSearch.MatchString(value) {
+		ip, port, hasPort := strings.Cut(value, ":")
+		var parts []string
+		var args []any
+		if ip != "" {
+			parts = append(parts, "`ip` = ?")
+			args = append(args, ip)
+		}
+		if hasPort {
+			parts = append(parts, "`port` LIKE ?")
+			args = append(args, port+"%")
+		}
+		return id + " IN (SELECT `server_id` FROM `allocations` WHERE `server_id` IS NOT NULL AND " + strings.Join(parts, " AND ") + ")", args
+	}
+
+	sql := "(" + quote(table, "uuid") + " = ? OR " + quote(table, "uuid") + " LIKE ? ESCAPE '|' OR " + quote(table, "uuidShort") + " = ? OR " +
+		quote(table, "external_id") + " = ? OR LOWER(" + quote(table, "name") + ") LIKE ? ESCAPE '|')"
+	return sql, []any{value, likeEscape(value) + "%", value, value, PartialPattern(value)}
 }
