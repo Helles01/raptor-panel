@@ -469,3 +469,26 @@ func TestBodiesAreWellFormedJSON(t *testing.T) {
 		t.Errorf("body = %q, %v", f.last(t).Body, err)
 	}
 }
+
+func TestDelete(t *testing.T) {
+	f := newFakeWings(t, false)
+	c := newClient(t, f, ClientOptions{})
+
+	if err := c.Delete(context.Background(), serverUUID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last(t); got.Method != "DELETE" || got.Path != "/api/servers/"+serverUUID || got.Body != "" || got.Auth != "Bearer "+nodeToken {
+		t.Errorf("request = %+v", got)
+	}
+
+	before := f.count()
+	if err := c.Delete(context.Background(), "../../etc"); err == nil || f.count() != before {
+		t.Errorf("a server that is not a UUID was sent: %v", err)
+	}
+
+	f.reply(404, `{"error":"The requested resource was not found on the system."}`)
+	var we *Error
+	if err := c.Delete(context.Background(), serverUUID); !errors.As(err, &we) || we.Status != 404 {
+		t.Errorf("error = %v", err)
+	}
+}

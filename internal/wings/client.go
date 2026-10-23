@@ -279,3 +279,11 @@ func cleanMessage(s string) string {
 	}
 	return strings.TrimRight(s, ". ")
 }
+
+// Delete tells the node to remove a server and its files. The panel does it to the old node once a transfer has ended.
+func (c *Client) Delete(ctx context.Context, serverUUID string) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodDelete, "/api/servers/"+serverUUID, nil, nil)
+}

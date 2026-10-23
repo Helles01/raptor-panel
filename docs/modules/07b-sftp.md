@@ -1,6 +1,6 @@
 # M7 groundwork – SFTP sign-in, SSH keys, server state
 
-Status: **groundwork done** (2026-10-22): the rules behind `POST /api/remote/sftp/auth`, which the node calls for every SFTP login.
+Status: **groundwork done** (2026-10-22), **endpoint done over interfaces** (2026-10-23, `07f-remote-endpoints.md`): the rules behind `POST /api/remote/sftp/auth`, which the node calls for every SFTP login.
 The endpoint, the lookups (user, server on this node, registered keys) and the activity entries wait for the schema.
 
 ## Done

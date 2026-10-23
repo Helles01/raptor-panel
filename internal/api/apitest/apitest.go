@@ -42,14 +42,15 @@ type World struct {
 	Servers []authz.Server
 	// Subusers holds the permissions of a subuser, by server and user.
 	Subusers map[[2]uint64][]string
+	// Nodes holds the nodes that may call the node API, by the id of their token (see AddNode).
+	Nodes map[string]authz.NodeCredentials
 	// TwoFactorLevel is the panel's requirement: 0 none, 1 administrators, 2 everybody.
 	TwoFactorLevel int
-	// KeyIDs numbers the keys; a user's key has the same number as the user.
 }
 
 // NewWorld returns an empty world.
 func NewWorld() *World {
-	return &World{Users: map[uint64]authz.User{}, Subusers: map[[2]uint64][]string{}}
+	return &World{Users: map[uint64]authz.User{}, Subusers: map[[2]uint64][]string{}, Nodes: map[string]authz.NodeCredentials{}}
 }
 
 // AddUser adds a user whose UUID is made of the number.
@@ -107,7 +108,12 @@ func (w *World) SubuserPermissions(_ context.Context, serverID, userID uint64) (
 	return p, ok, nil
 }
 
-func (w *World) ByTokenID(context.Context, string) (authz.NodeCredentials, error) {
+func (w *World) ByTokenID(_ context.Context, id string) (authz.NodeCredentials, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if n, ok := w.Nodes[id]; ok {
+		return n, nil
+	}
 	return authz.NodeCredentials{}, authz.ErrNoNode
 }
 
@@ -161,6 +167,16 @@ type Client struct {
 // As sends a request as a user, who signs in with a client API key; user 0 sends none. A body, if not empty, is sent as JSON.
 func (c *Client) As(user uint64, method, target, body string) Reply {
 	c.t.Helper()
+	header := ""
+	if user != 0 {
+		header = "Bearer " + KeyIdentifier(user) + Secret
+	}
+	return c.send(header, method, target, body)
+}
+
+// send makes the request with the Authorization header, which may be empty.
+func (c *Client) send(authorization, method, target, body string) Reply {
+	c.t.Helper()
 	var payload io.Reader
 	if body != "" {
 		payload = bytes.NewBufferString(body)
@@ -171,8 +187,8 @@ func (c *Client) As(user uint64, method, target, body string) Reply {
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if user != 0 {
-		req.Header.Set("Authorization", "Bearer "+KeyIdentifier(user)+Secret)
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 	rec := httptest.NewRecorder()
 	c.h.ServeHTTP(rec, req)
@@ -239,3 +255,23 @@ func (r Reply) Code() string {
 
 // Contains reports whether the raw body has the text.
 func (r Reply) Contains(s string) bool { return strings.Contains(string(r.Raw), s) }
+
+// NodeTokenID is the id of the token of a node, 16 characters; NodeSecret is the secret of every node's token.
+func NodeTokenID(node uint64) string { return fmt.Sprintf("node%012d", node) }
+
+var NodeSecret = strings.Repeat("n", 64)
+
+// AddNode lets a node call the node API with the token of NodeTokenID and NodeSecret.
+func (w *World) AddNode(id uint64) {
+	w.Nodes[NodeTokenID(id)] = authz.NodeCredentials{Node: authz.Node{ID: id, UUID: fmt.Sprintf("%08d-1111-4111-8111-111111111111", id)}, Token: NodeSecret}
+}
+
+// AsNode sends a request as a node, with its token; node 0 sends none.
+func (c *Client) AsNode(node uint64, method, target, body string) Reply {
+	c.t.Helper()
+	header := ""
+	if node != 0 {
+		header = "Bearer " + NodeTokenID(node) + "." + NodeSecret
+	}
+	return c.send(header, method, target, body)
+}
