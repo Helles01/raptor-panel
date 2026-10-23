@@ -216,3 +216,21 @@ func TestPageParamsWith(t *testing.T) {
 		})
 	}
 }
+
+func TestItemMeta(t *testing.T) {
+	item := NewItem("server", map[string]any{"name": "Survival"})
+
+	withMeta := item.WithMeta("is_server_owner", true).WithMeta("user_permissions", []string{"*"})
+	got := toMap(t, withMeta)
+	want := map[string]any{"is_server_owner": true, "user_permissions": []any{"*"}}
+	if !reflect.DeepEqual(got["meta"], want) {
+		t.Errorf("meta = %v, want %v", got["meta"], want)
+	}
+
+	if item.Meta != nil {
+		t.Error("WithMeta must not modify the original item")
+	}
+	if _, ok := toMap(t, item)["meta"]; ok {
+		t.Error("an item without meta must not have the key")
+	}
+}

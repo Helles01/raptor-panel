@@ -1,6 +1,8 @@
 package authz
 
 import (
+	"encoding/base32"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -388,5 +390,43 @@ func TestFailingStoresAreServerErrors(t *testing.T) {
 		if rp.Status != 500 || strings.Contains(string(rp.Body), "db down") {
 			t.Errorf("%s: %d %s", tt.name, rp.Status, rp.Body)
 		}
+	}
+}
+
+// The long identifier, "serv_" and the UUID in base32, names a server in every route, as it does in the reference (C-055).
+func TestServerLongIdentifier(t *testing.T) {
+	long := func(uuid string) string {
+		raw, _ := hex.DecodeString(strings.ReplaceAll(uuid, "-", ""))
+		return "serv_" + strings.ToLower(strings.TrimRight(base32.StdEncoding.EncodeToString(raw), "="))
+	}
+	good := long("aaaa1111-2222-4333-8444-555555555555")
+	other := long("bbbb2222-2222-4333-8444-555555555555")
+
+	e := newEnv(t)
+	tests := []struct {
+		name, ref string
+		want      int
+	}{
+		{"the identifier", good, 200},
+		{"in upper case", strings.ToUpper(good), 200},
+		{"of a server that does not exist", other, 404},
+		{"with stray bits", good[:len(good)-1] + "b", 404},
+		{"too short", good[:len(good)-1], 404},
+		{"with another prefix", "user_" + strings.TrimPrefix(good, "serv_"), 404},
+		{"the prefix alone", "serv_", 404},
+	}
+	for _, tt := range tests {
+		if rp := e.call("GET", "/servers/"+tt.ref+"/any", "user=3"); rp.Status != tt.want {
+			t.Errorf("%s: /servers/%s = %d, want %d", tt.name, tt.ref, rp.Status, tt.want)
+		}
+	}
+
+	// Only what decodes is looked up: the identifier that exists and the one that does not.
+	e = newEnv(t)
+	for _, ref := range []string{good[:len(good)-1] + "b", good[:len(good)-1], "serv_", "serv_aaaaaaaaaaaaaaaaaaaaaaaaa1"} {
+		e.call("GET", "/servers/"+ref+"/any", "user=3")
+	}
+	if e.f.finds != 0 {
+		t.Errorf("the store was asked %d times about identifiers that cannot name a server", e.f.finds)
 	}
 }

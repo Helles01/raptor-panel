@@ -2,8 +2,11 @@
 package ids
 
 import (
+	"encoding/base32"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const alphanumeric = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -65,4 +68,39 @@ func RandomBelow(r io.Reader, n int) (int, error) {
 			return int(v % uint64(n)), nil
 		}
 	}
+}
+
+// realtimeAlphabet is the lower case RFC 4648 alphabet the reference panel's identifiers use.
+var realtimeAlphabet = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
+
+// Realtime returns the identifier the API shows for a record that is kept under a UUID: the prefix, an underscore and the
+// 16 bytes of the UUID in lower case base32 without padding ("serv_" for a server, "user_" for a user). Nothing is stored for
+// it; it is the UUID written in another way. The UUID must be in its canonical form, as the database keeps it.
+func Realtime(prefix, uuid string) (string, error) {
+	if len(uuid) != 36 || uuid[8] != '-' || uuid[13] != '-' || uuid[18] != '-' || uuid[23] != '-' {
+		return "", fmt.Errorf("%q is not a UUID", uuid)
+	}
+	raw, err := hex.DecodeString(uuid[0:8] + uuid[9:13] + uuid[14:18] + uuid[19:23] + uuid[24:36])
+	if err != nil {
+		return "", fmt.Errorf("%q is not a UUID", uuid)
+	}
+	return prefix + "_" + realtimeAlphabet.EncodeToString(raw), nil
+}
+
+// ParseRealtime is the reverse of Realtime: the UUID behind an identifier that has the given prefix. It accepts only what Realtime
+// writes, so an identifier with stray bits at its end, or of another length, is not one.
+func ParseRealtime(prefix, identifier string) (string, bool) {
+	rest, found := strings.CutPrefix(identifier, prefix+"_")
+	if !found || len(rest) != 26 {
+		return "", false
+	}
+	raw, err := realtimeAlphabet.DecodeString(rest)
+	if err != nil || len(raw) != 16 {
+		return "", false
+	}
+	uuid := fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+	if back, err := Realtime(prefix, uuid); err != nil || back != identifier {
+		return "", false
+	}
+	return uuid, true
 }

@@ -125,3 +125,77 @@ func TestRandomBelow(t *testing.T) {
 		t.Error("want an error when the random source runs out")
 	}
 }
+
+func TestRealtime(t *testing.T) {
+	tests := []struct {
+		name, prefix, uuid, want string
+		wantErr                  bool
+	}{
+		{"all zero bits", "serv", "00000000-0000-0000-0000-000000000000", "serv_aaaaaaaaaaaaaaaaaaaaaaaaaa", false},
+		// 15 bytes of ones make 24 characters of 7, the last byte 11111111 is the five bits 11111 and the three bits 111 padded with zeros.
+		{"all one bits", "user", "ffffffff-ffff-ffff-ffff-ffffffffffff", "user_77777777777777777777777774", false},
+		// 0x01 is the bits 00000 001(00): "a" and then "e" (index 4).
+		{"first byte one", "serv", "01000000-0000-0000-0000-000000000000", "serv_aeaaaaaaaaaaaaaaaaaaaaaaaa", false},
+		{"upper case hex", "serv", "FFFFFFFF-ffff-FFFF-ffff-ffffffffffff", "serv_77777777777777777777777774", false},
+		{"too short", "serv", "0000000-0000-0000-0000-000000000000", "", true},
+		{"too long", "serv", "000000000-0000-0000-0000-000000000000", "", true},
+		{"no dashes", "serv", "00000000000000000000000000000000000x", "", true},
+		{"dash in the wrong place", "serv", "000000000-000-0000-0000-000000000000", "", true},
+		{"not hex", "serv", "0000000g-0000-0000-0000-000000000000", "", true},
+		{"empty", "serv", "", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Realtime(tt.prefix, tt.uuid)
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Errorf("Realtime(%q, %q) = %q, %v; want %q (error %v)", tt.prefix, tt.uuid, got, err, tt.want, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseRealtime(t *testing.T) {
+	tests := []struct {
+		name, prefix, in, want string
+		ok                     bool
+	}{
+		{"all zero bits", "serv", "serv_aaaaaaaaaaaaaaaaaaaaaaaaaa", "00000000-0000-0000-0000-000000000000", true},
+		{"all one bits", "user", "user_77777777777777777777777774", "ffffffff-ffff-ffff-ffff-ffffffffffff", true},
+		{"first byte one", "serv", "serv_aeaaaaaaaaaaaaaaaaaaaaaaaa", "01000000-0000-0000-0000-000000000000", true},
+		{"another prefix", "user", "serv_aaaaaaaaaaaaaaaaaaaaaaaaaa", "", false},
+		{"no prefix", "serv", "aaaaaaaaaaaaaaaaaaaaaaaaaa", "", false},
+		{"only the prefix", "serv", "serv_", "", false},
+		{"too short", "serv", "serv_aaaaaaaaaaaaaaaaaaaaaaaaa", "", false},
+		{"too long", "serv", "serv_aaaaaaaaaaaaaaaaaaaaaaaaaaa", "", false},
+		// The last character carries four stray bits: the same 16 bytes written another way are not an identifier.
+		{"stray bits", "serv", "serv_aaaaaaaaaaaaaaaaaaaaaaaaab", "", false},
+		{"a character outside the alphabet", "serv", "serv_aaaaaaaaaaaaaaaaaaaaaaaaa1", "", false},
+		{"upper case", "serv", "serv_AAAAAAAAAAAAAAAAAAAAAAAAAA", "", false},
+		{"padding", "serv", "serv_aaaaaaaaaaaaaaaaaaaaaaaaaa======", "", false},
+		{"empty", "serv", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ParseRealtime(tt.prefix, tt.in)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("ParseRealtime(%q, %q) = %q, %v; want %q, %v", tt.prefix, tt.in, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestRealtimeRoundTrip(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		uuid, err := UUIDv4(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := Realtime("serv", uuid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if back, ok := ParseRealtime("serv", id); !ok || back != uuid {
+			t.Errorf("%s -> %s -> %s", uuid, id, back)
+		}
+	}
+}

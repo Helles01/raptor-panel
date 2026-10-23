@@ -25,6 +25,7 @@ type Item struct {
 	Object        string         `json:"object"`
 	Attributes    any            `json:"attributes"`
 	Relationships map[string]any `json:"relationships,omitempty"`
+	Meta          map[string]any `json:"meta,omitempty"`
 }
 
 // NewItem returns an item of the given object type.
@@ -40,6 +41,18 @@ func (i Item) With(name string, relationship any) Item {
 	}
 	rels[name] = relationship
 	i.Relationships = rels
+	return i
+}
+
+// WithMeta returns a copy of the item with one more meta key, for the answers that carry information about the item itself
+// (the permissions of the caller on a server).
+func (i Item) WithMeta(key string, value any) Item {
+	meta := make(map[string]any, len(i.Meta)+1)
+	for k, v := range i.Meta {
+		meta[k] = v
+	}
+	meta[key] = value
+	i.Meta = meta
 	return i
 }
 

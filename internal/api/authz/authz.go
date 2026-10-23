@@ -20,6 +20,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/apierr"
 	"github.com/Helles01/raptor-panel/internal/api/middleware"
 	"github.com/Helles01/raptor-panel/internal/auth"
+	"github.com/Helles01/raptor-panel/internal/ids"
 	"github.com/Helles01/raptor-panel/internal/permissions"
 	"github.com/Helles01/raptor-panel/internal/servers"
 )
@@ -343,6 +344,15 @@ var serverRef = regexp.MustCompile(`^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9
 func (a *Authorizer) server(c echo.Context, p api.Permission, pr *Principal) error {
 	ctx := c.Request().Context()
 	ref := strings.ToLower(c.Param("server"))
+	if strings.HasPrefix(ref, "serv_") {
+		// The long identifier the client API shows as server_identifier is the UUID written another way, and the reference accepts
+		// it in every route (C-055).
+		uuid, ok := ids.ParseRealtime("serv", ref)
+		if !ok {
+			return apierr.NotFound()
+		}
+		ref = uuid
+	}
 	if !serverRef.MatchString(ref) {
 		return apierr.NotFound()
 	}
