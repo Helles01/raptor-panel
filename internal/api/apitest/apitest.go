@@ -33,6 +33,9 @@ const Secret = "abcdefghijklmnopqrstuvwxyzABCDEF"
 // KeyIdentifier is the identifier of the client API key of a user, 16 characters as a key's must be.
 func KeyIdentifier(user uint64) string { return fmt.Sprintf("ptlc_user%07d", user) }
 
+// AppIdentifier is the identifier of the application API key of a user, 16 characters as a key's must be.
+func AppIdentifier(user uint64) string { return fmt.Sprintf("ptla_app%08d", user) }
+
 // World holds the users, servers and subusers the authorizer reads. Fill the maps before the first call; the world is safe to
 // read from the handlers of one test.
 type World struct {
@@ -48,6 +51,21 @@ type World struct {
 	TwoFactorLevel int
 	// Sessions is the session manager of the server; Serve makes one if none is set. Set it first to create sessions that the server knows.
 	Sessions *session.Manager
+	// AppAccess holds the levels of the application key of a user (see GrantApp); a user without an entry has no such key.
+	AppAccess map[uint64]map[string]auth.Access
+}
+
+// GrantApp gives a user an application API key with the levels given as "resource=level" ("users=rw", "nodes=read"); the resources
+// not mentioned get none. It panics on a wrong spec, which is a mistake of the test.
+func (w *World) GrantApp(user uint64, specs ...string) {
+	access, err := auth.ParseResourceAccess(specs)
+	if err != nil {
+		panic(err)
+	}
+	if w.AppAccess == nil {
+		w.AppAccess = map[uint64]map[string]auth.Access{}
+	}
+	w.AppAccess[user] = access
 }
 
 // NewWorld returns an empty world.
@@ -85,6 +103,9 @@ func (w *World) ByIdentifier(_ context.Context, identifier string) (authz.Key, e
 	for id := range w.Users {
 		if KeyIdentifier(id) == identifier {
 			return authz.Key{ID: id, UserID: id, Type: auth.KeyAccount, Identifier: identifier, SecretHash: auth.HashKeySecret(Secret)}, nil
+		}
+		if access, ok := w.AppAccess[id]; ok && AppIdentifier(id) == identifier {
+			return authz.Key{ID: 1000 + id, UserID: id, Type: auth.KeyApplication, Identifier: identifier, SecretHash: auth.HashKeySecret(Secret), Access: access}, nil
 		}
 	}
 	return authz.Key{}, authz.ErrNoKey
@@ -176,6 +197,16 @@ func (c *Client) As(user uint64, method, target, body string) Reply {
 	header := ""
 	if user != 0 {
 		header = "Bearer " + KeyIdentifier(user) + Secret
+	}
+	return c.send(header, method, target, body)
+}
+
+// AsApp sends a request as a user with the application API key given by GrantApp; user 0 sends none.
+func (c *Client) AsApp(user uint64, method, target, body string) Reply {
+	c.t.Helper()
+	header := ""
+	if user != 0 {
+		header = "Bearer " + AppIdentifier(user) + Secret
 	}
 	return c.send(header, method, target, body)
 }

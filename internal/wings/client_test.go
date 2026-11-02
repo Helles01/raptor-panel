@@ -575,3 +575,26 @@ func TestBackupCallsRejectBadInputBeforeAnyRequest(t *testing.T) {
 		t.Errorf("%d requests reached the node for invalid input", f.count())
 	}
 }
+
+func TestUpdateConfiguration(t *testing.T) {
+	f := newFakeWings(t, false)
+	c := newClient(t, f, ClientOptions{})
+	cfg := `{"uuid":"9f4d2c10-0000-4000-8000-000000000001","token":"` + strings.Repeat("t", 64) + `"}`
+
+	if err := c.UpdateConfiguration(context.Background(), []byte(cfg)); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last(t); got.Method != "POST" || got.Path != "/api/update" || got.Body != cfg || got.Auth != "Bearer "+nodeToken {
+		t.Errorf("request = %+v", got)
+	}
+	// Whatever is not JSON is not sent.
+	before := f.count()
+	if err := c.UpdateConfiguration(context.Background(), []byte("debug: false")); err == nil || f.count() != before {
+		t.Errorf("a configuration that is not JSON was sent: %v", err)
+	}
+	f.reply(401, `{"error":"The required authorization heads were not present in the request."}`)
+	var we *Error
+	if err := c.UpdateConfiguration(context.Background(), []byte(cfg)); !errors.As(err, &we) || we.Status != 401 {
+		t.Errorf("error = %v", err)
+	}
+}

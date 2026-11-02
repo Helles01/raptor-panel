@@ -410,3 +410,12 @@ func jsonBody(v any) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// UpdateConfiguration sends a running node its new configuration (as JSON, in the form of nodes.WingsConfigJSON), which Wings applies
+// to what it can without a restart.
+func (c *Client) UpdateConfiguration(ctx context.Context, config []byte) error {
+	if !json.Valid(config) {
+		return errors.New("wings: the configuration is not JSON")
+	}
+	return c.run(ctx, call{method: http.MethodPost, path: "/api/update", body: config, contentType: "application/json"})
+}

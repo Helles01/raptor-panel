@@ -4,6 +4,8 @@ Status: **groundwork done** (2026-10-23): the rules of the write endpoints for u
 are filtered, sorted and expanded. Nothing here touches a database or the network; the endpoints, the stores and the push of a node's configuration to
 Wings wait for the schema.
 
+The routes over storage interfaces are described in `08c-application-api-endpoints.md`.
+
 ## Done
 | Package | Content |
 |---|---|
