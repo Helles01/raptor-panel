@@ -2,7 +2,7 @@
 
 Status: **handlers done over storage interfaces** (2026-11-02): `internal/api/appusers`, `applocations`, `appnodes`, `appallocs`,
 `appnests`, and `internal/api/appkit` that they share. The rules are in `internal/users`, `internal/nodes`, `internal/servers`
-(8b); the lists use `internal/api/listquery`. The servers of the Application API (M5 reads, M9 writes, M14 databases) are not here yet.
+(8b); the lists use `internal/api/listquery`. The servers of the Application API, their databases and the `servers` includes of these resources were added the same day (`08d-application-server-endpoints.md`).
 
 Every route is registered with `api.ApplicationKey(resource, level)`: an application key (`ptla_`) of an administrator, with at
 least that level on the resource (C-054). A client key, a session or a key without the resource is refused before a handler runs, and
@@ -15,8 +15,8 @@ a handler called without the authorizer answers 403 (the "bare route" tests).
   times always in UTC (`+00:00`), a node never shows its token or token id, docker images keep the order of the egg (the first is the
   default), an egg that has no files shows `{}`, the egg's `config` and `script` includes are items whose `object` is `null`.
 - **Includes**: `Wanted(query, spec)` reads `?include=` and keeps what is offered and shown; `Load(view)` is the part the store must
-  load, namely what the key may read. What the key may not read is shown as a `null_resource` and never loaded. Servers are left out
-  (C-064).
+  load, namely what the key may read. What the key may not read is shown as a `null_resource` and never loaded. The servers are shown
+  like the others (C-064).
 - `Caller`, `ID`, `List`, `Created` (201 with `meta.resource`), `StoreError` (not found 404, taken 422 "The email has already been
   taken.", anything else 500) and `FieldError`.
 
@@ -60,8 +60,7 @@ and `script` (what an egg borrows from another, shown only when it borrows); the
 `nodes.WingsConfigJSON` is the same configuration as the YAML one.
 
 ## Different from the reference (`docs/compat.md`)
-C-063 (the new configuration of a node goes to the node's current address with its current token), C-064 (servers are not shown as an
-include yet), and what 8b lists (C-044, C-045, C-046).
+C-063 (the new configuration of a node goes to the node's current address with its current token), C-064 (the includes: `transfer` is not offered, relations are loaded only for a key that may read them), and what 8b lists (C-044, C-045, C-046).
 
 ## Tests
 Each package has the matrix of the keys (administrator or not, the level on the resource, a client key, no key), the shape of every
@@ -71,5 +70,4 @@ mail greeting, a zero memory in `deployable`, the order of the deployable list, 
 
 ## Still to do
 The stores (the unique keys mapped to `*appkit.TakenError`, the effects of a user change, the sealed node token, the paths mounted on
-a node, the usage of a node), the servers of the Application API with their includes, the database hosts routes, and `raptor serve`
-wiring of these groups.
+a node, the usage of a node), and `raptor serve` wiring of these groups.

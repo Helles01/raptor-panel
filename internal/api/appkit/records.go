@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Helles01/raptor-panel/internal/nodes"
+	"github.com/Helles01/raptor-panel/internal/servers"
 )
 
 // The records are what the stores return. A relation (Nodes, Allocations, Location and so on) is filled only when the request asked
@@ -24,6 +25,8 @@ type User struct {
 	TwoFactor  bool
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+
+	Servers []Server
 }
 
 // Location is a place nodes are in. Long is null when it was left out.
@@ -34,7 +37,8 @@ type Location struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
-	Nodes []Node
+	Nodes   []Node
+	Servers []Server
 }
 
 // Node is a node with its settings and what its servers have been given.
@@ -52,6 +56,7 @@ type Node struct {
 
 	Allocations []Allocation
 	Location    *Location
+	Servers     []Server
 }
 
 // Allocation is an address and port of a node, taken by a server or free.
@@ -64,7 +69,8 @@ type Allocation struct {
 	Notes    *string
 	ServerID *uint64
 
-	Node *Node
+	Node   *Node
+	Server *Server
 }
 
 // Nest is a group of eggs.
@@ -77,7 +83,8 @@ type Nest struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 
-	Eggs []Egg
+	Eggs    []Egg
+	Servers []Server
 }
 
 // DockerImage is one image of an egg under the name it is shown by. The order is the order of the egg: the first is the default.
@@ -136,7 +143,76 @@ type Egg struct {
 
 	Nest      *Nest
 	Variables []EggVariable
+	Servers   []Server
 	// Inherited is the configuration the egg gets from ConfigFrom, and InheritedScript the script it gets from CopyScriptFrom.
 	Inherited       *ConfigSet
 	InheritedScript *ScriptSet
+}
+
+// ServerVariable is a variable of the egg of a server with the value the server has for it (nil: it has none and uses the default).
+type ServerVariable struct {
+	Variable    EggVariable
+	ServerValue *string
+}
+
+// Subuser is a user who may use a server, with the permissions they were given.
+type Subuser struct {
+	ID          uint64
+	UserID      uint64
+	ServerID    uint64
+	Permissions []string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// DatabaseHost is a database server the panel makes databases on. The password of the panel's account there is never shown.
+type DatabaseHost struct {
+	ID        uint64
+	Name      string
+	Host      string
+	Port      int
+	Username  string
+	NodeID    *uint64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ServerDatabase is a database of a server. Password is the password in the clear, filled only when the request asks for it.
+type ServerDatabase struct {
+	ID             uint64
+	ServerID       uint64
+	HostID         uint64
+	Name           string
+	Username       string
+	Remote         string
+	MaxConnections int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Password       *string
+	Host           *DatabaseHost
+}
+
+// Server is a server as the Application API shows it. Config holds what the node is told about it (its name, limits, startup
+// command, variables and allocation); the rest is what the API adds.
+type Server struct {
+	ID         uint64
+	ExternalID *string
+	// ShortID is the first eight characters of the UUID.
+	ShortID string
+	Config  servers.Server
+
+	OwnerID, NodeID, AllocationID, NestID, EggID uint64
+	// DatabaseLimit and BackupLimit are nil when none is set.
+	DatabaseLimit, BackupLimit *int64
+	CreatedAt, UpdatedAt       time.Time
+
+	Allocations []Allocation
+	Subusers    []Subuser
+	User        *User
+	Nest        *Nest
+	Egg         *Egg
+	Variables   []ServerVariable
+	Location    *Location
+	Node        *Node
+	Databases   []ServerDatabase
 }

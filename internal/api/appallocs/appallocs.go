@@ -92,7 +92,7 @@ func (h *Handlers) List(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Allocations)
-	list, total, err := h.d.Store.List(ctx, nodeID, q, page, perPage, inc.Load(v))
+	list, total, err := h.d.Store.List(ctx, nodeID, q, page, perPage, inc.Load(v, listquery.Allocations))
 	if err != nil {
 		return appkit.StoreError(err)
 	}

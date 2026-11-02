@@ -72,18 +72,18 @@ func TestViewReadsTheLevelsOfTheKey(t *testing.T) {
 func TestIncludes(t *testing.T) {
 	q := url.Values{"include": {"allocations,location,servers,nothing,eggs"}}
 	got := Wanted(q, listquery.Nodes)
-	// Only what the resource offers and this panel shows: the servers and the unknown name are left out, and so is what Nodes does not offer.
-	if len(got) != 2 || !got["allocations"] || !got["location"] {
+	// Only what the resource offers: an unknown name is left out, and so is what Nodes does not offer.
+	if len(got) != 3 || !got["allocations"] || !got["location"] || !got["servers"] {
 		t.Errorf("Wanted = %v", got)
 	}
 	p := authz.Principal{Key: &authz.Key{Access: map[string]auth.Access{"allocations": auth.AccessRead}}}
-	load := got.Load(NewView(p))
+	load := got.Load(NewView(p), listquery.Nodes)
 	if len(load) != 1 || !load["allocations"] {
 		t.Errorf("Load = %v", load)
 	}
 	// An egg's own configuration and script need no right.
 	eggs := Wanted(url.Values{"include": {"config,script,variables,nest"}}, listquery.Eggs)
-	if l := eggs.Load(NewView(authz.Principal{Key: &authz.Key{}})); len(l) != 2 || !l["config"] || !l["script"] {
+	if l := eggs.Load(NewView(authz.Principal{Key: &authz.Key{}}), listquery.Eggs); len(l) != 2 || !l["config"] || !l["script"] {
 		t.Errorf("egg Load = %v", l)
 	}
 }

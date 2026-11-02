@@ -14,6 +14,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api"
 	"github.com/Helles01/raptor-panel/internal/api/apitest"
 	"github.com/Helles01/raptor-panel/internal/api/appkit"
+	"github.com/Helles01/raptor-panel/internal/servers"
 )
 
 const (
@@ -40,6 +41,9 @@ type store struct {
 }
 
 func (s *store) fillEgg(e appkit.Egg, load appkit.Includes) appkit.Egg {
+	if load["servers"] {
+		e.Servers = []appkit.Server{{ID: 500, ShortID: "aaaa1111", EggID: e.ID, Config: servers.Server{UUID: "aaaa1111-2222-4333-8444-555555555555", Name: "Survival"}}}
+	}
 	if load["nest"] {
 		for _, n := range s.nests {
 			if n.ID == e.NestID {
@@ -61,6 +65,9 @@ func (s *store) fillEgg(e appkit.Egg, load appkit.Includes) appkit.Egg {
 }
 
 func (s *store) fillNest(n appkit.Nest, load appkit.Includes) appkit.Nest {
+	if load["servers"] {
+		n.Servers = []appkit.Server{{ID: 500, ShortID: "aaaa1111", NestID: n.ID, Config: servers.Server{UUID: "aaaa1111-2222-4333-8444-555555555555", Name: "Survival"}}}
+	}
 	if load["eggs"] {
 		for _, e := range s.eggs {
 			if e.NestID == n.ID {
@@ -170,7 +177,7 @@ func newRig(t *testing.T) *rig {
 	for id, admin := range map[uint64]bool{grace: true, bob: true, cleo: true, dave: false} {
 		w.AddUser(id, admin)
 	}
-	w.GrantApp(grace, "nests=read", "eggs=read")
+	w.GrantApp(grace, "nests=read", "eggs=read", "servers=read")
 	w.GrantApp(bob, "nests=read")
 	w.GrantApp(cleo, "eggs=read")
 	w.GrantApp(dave, "nests=read", "eggs=read")
@@ -268,8 +275,14 @@ func TestNestIncludes(t *testing.T) {
 	if rp.At("relationships", "eggs", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
-	if rp := r.do(grace, "/1?include=servers"); rp.Has("relationships", "servers") {
-		t.Errorf("servers shown: %s", rp.Raw)
+	// The servers of a nest: shown to a key that may read servers, a null resource to one that may not.
+	r = newRig(t)
+	if rp := r.do(grace, "/1?include=servers"); rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
+		t.Errorf("servers: %s, load = %v", rp.Raw, r.store.lastLoad)
+	}
+	r = newRig(t)
+	if rp := r.do(bob, "/1?include=servers"); rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+		t.Errorf("no right to servers: %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }
 
@@ -373,7 +386,7 @@ func TestEggIncludes(t *testing.T) {
 	if r.store.lastLoad["nest"] || !r.store.lastLoad["variables"] {
 		t.Errorf("load = %v", r.store.lastLoad)
 	}
-	if rp := r.do(grace, "/1/eggs?include=nest,servers"); rp.At("data", 0, "relationships", "nest", "object") != "nest" || rp.Has("data", 0, "relationships", "servers") {
+	if rp := r.do(grace, "/1/eggs?include=nest,servers"); rp.At("data", 0, "relationships", "nest", "object") != "nest" || rp.At("data", 0, "relationships", "servers", "object") != "list" {
 		t.Errorf("list includes: %s", rp.Raw)
 	}
 }

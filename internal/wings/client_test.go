@@ -598,3 +598,36 @@ func TestUpdateConfiguration(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+func TestCreateServerAndSync(t *testing.T) {
+	f := newFakeWings(t, false)
+	c := newClient(t, f, ClientOptions{})
+	ctx := context.Background()
+
+	if err := c.CreateServer(ctx, serverUUID, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last(t); got.Method != "POST" || got.Path != "/api/servers" || got.Body != `{"start_on_completion":true,"uuid":"`+serverUUID+`"}` || got.Auth != "Bearer "+nodeToken {
+		t.Errorf("create = %+v", got)
+	}
+	if err := c.CreateServer(ctx, serverUUID, false); err != nil || !strings.Contains(f.last(t).Body, `"start_on_completion":false`) {
+		t.Errorf("without start: %v %+v", err, f.last(t))
+	}
+	if err := c.Sync(ctx, serverUUID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last(t); got.Method != "POST" || got.Path != "/api/servers/"+serverUUID+"/sync" || got.Body != "" {
+		t.Errorf("sync = %+v", got)
+	}
+
+	// A server that is not a UUID is never sent, whatever the path would make of it.
+	before := f.count()
+	if c.CreateServer(ctx, "../x", false) == nil || c.Sync(ctx, "a/b") == nil || f.count() != before {
+		t.Error("a server that is not a UUID was sent")
+	}
+	f.reply(500, `{"error":"The server could not be created."}`)
+	var we *Error
+	if err := c.CreateServer(ctx, serverUUID, false); !errors.As(err, &we) || we.Status != 500 {
+		t.Errorf("error = %v", err)
+	}
+}

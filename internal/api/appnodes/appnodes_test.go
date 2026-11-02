@@ -75,6 +75,9 @@ func (s *store) fill(n appkit.Node, load appkit.Includes) appkit.Node {
 	if load["allocations"] {
 		n.Allocations = []appkit.Allocation{{ID: 70, NodeID: n.ID, IP: "10.0.0.1", Port: 25565}}
 	}
+	if load["servers"] {
+		n.Servers = []appkit.Server{{ID: 500, ShortID: "aaaa1111", NodeID: n.ID, Config: servers.Server{UUID: "aaaa1111-2222-4333-8444-555555555555", Name: "Survival"}}}
+	}
 	if load["location"] {
 		n.Location = &appkit.Location{ID: n.Settings.LocationID, Short: "us.nyc", CreatedAt: t0, UpdatedAt: t0}
 	}
@@ -253,7 +256,7 @@ func newRig(t *testing.T) *rig {
 	for id, admin := range map[uint64]bool{grace: true, bob: true, cleo: true, dave: false} {
 		w.AddUser(id, admin)
 	}
-	w.GrantApp(grace, "nodes=rw", "allocations=read", "locations=read")
+	w.GrantApp(grace, "nodes=rw", "allocations=read", "locations=read", "servers=read")
 	w.GrantApp(bob, "nodes=read")
 	w.GrantApp(cleo, "users=rw")
 	w.GrantApp(dave, "nodes=rw")
@@ -384,8 +387,15 @@ func TestIncludes(t *testing.T) {
 	if len(r.store.lastLoad) != 0 {
 		t.Errorf("load = %v", r.store.lastLoad)
 	}
-	if rp := r.do(grace, "GET", "/7?include=servers", ""); rp.Has("relationships", "servers") {
-		t.Errorf("servers shown: %s", rp.Raw)
+	// The servers of a node: shown to a key that may read servers, a null resource to one that may not.
+	r = newRig(t)
+	rp = r.do(grace, "GET", "/7?include=servers", "")
+	if rp.Status != 200 || rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
+		t.Errorf("servers: %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
+	}
+	r = newRig(t)
+	if rp = r.do(bob, "GET", "/7?include=servers", ""); rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+		t.Errorf("no right to servers: %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }
 

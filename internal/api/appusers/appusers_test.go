@@ -17,6 +17,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/appkit"
 	"github.com/Helles01/raptor-panel/internal/api/listquery"
 	"github.com/Helles01/raptor-panel/internal/mail"
+	"github.com/Helles01/raptor-panel/internal/servers"
 	"github.com/Helles01/raptor-panel/internal/users"
 )
 
@@ -48,6 +49,7 @@ type store struct {
 	fail   error
 	owned  int64
 
+	lastLoad    appkit.Includes
 	listQuery   listquery.Query
 	listPage    [2]int
 	listTotal   int
@@ -57,15 +59,19 @@ type store struct {
 	deleteCheck error
 }
 
-func (s *store) List(_ context.Context, q listquery.Query, page, perPage int) ([]appkit.User, int, error) {
+func (s *store) List(_ context.Context, q listquery.Query, page, perPage int, load appkit.Includes) ([]appkit.User, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.listQuery, s.listPage = q, [2]int{page, perPage}
+	s.listQuery, s.listPage, s.lastLoad = q, [2]int{page, perPage}, load
 	total := s.listTotal
 	if total == 0 {
 		total = len(s.users)
 	}
-	return append([]appkit.User(nil), s.users...), total, s.fail
+	out := make([]appkit.User, len(s.users))
+	for i, u := range s.users {
+		out[i] = fill(u, load)
+	}
+	return out, total, s.fail
 }
 
 func (s *store) find(id uint64) (int, bool) {
@@ -77,27 +83,29 @@ func (s *store) find(id uint64) (int, bool) {
 	return 0, false
 }
 
-func (s *store) Find(_ context.Context, id uint64) (appkit.User, error) {
+func (s *store) Find(_ context.Context, id uint64, load appkit.Includes) (appkit.User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastLoad = load
 	if s.fail != nil {
 		return appkit.User{}, s.fail
 	}
 	if i, ok := s.find(id); ok {
-		return s.users[i], nil
+		return fill(s.users[i], load), nil
 	}
 	return appkit.User{}, appkit.ErrNotFound
 }
 
-func (s *store) FindExternal(_ context.Context, ext string) (appkit.User, error) {
+func (s *store) FindExternal(_ context.Context, ext string, load appkit.Includes) (appkit.User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastLoad = load
 	if s.fail != nil {
 		return appkit.User{}, s.fail
 	}
 	for _, u := range s.users {
 		if u.ExternalID != nil && *u.ExternalID == ext {
-			return u, nil
+			return fill(u, load), nil
 		}
 	}
 	return appkit.User{}, appkit.ErrNotFound
@@ -229,7 +237,7 @@ func newRig(t *testing.T) *rig {
 	for id, admin := range map[uint64]bool{grace: true, bob: true, cleo: true, dave: false, eve: true} {
 		w.AddUser(id, admin)
 	}
-	w.GrantApp(grace, "users=rw")
+	w.GrantApp(grace, "users=rw", "servers=read")
 	w.GrantApp(bob, "users=read")
 	w.GrantApp(cleo, "nodes=rw")
 	w.GrantApp(dave, "users=rw")
@@ -685,5 +693,41 @@ func TestANullPasswordIsNoPassword(t *testing.T) {
 		if rp.Status != 201 || !r.store.created[len(r.store.created)-1].User.NeedsSetup {
 			t.Errorf("%s: %d %s", body, rp.Status, rp.Raw)
 		}
+	}
+}
+
+// fill is what a store does for the relations that were asked for.
+func fill(u appkit.User, load appkit.Includes) appkit.User {
+	if load["servers"] {
+		u.Servers = []appkit.Server{{ID: 500, ShortID: "aaaa1111", OwnerID: u.ID, Config: servers.Server{UUID: "aaaa1111-2222-4333-8444-555555555555", Name: "Survival"}}}
+	}
+	return u
+}
+
+func TestTheServersOfAUser(t *testing.T) {
+	r := newRig(t)
+	rp := r.do(grace, "GET", "/10?include=servers", "")
+	if rp.Status != 200 || rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "object") != "server" ||
+		rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || rp.At("relationships", "servers", "data", 0, "attributes", "user") != 10.0 {
+		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
+	}
+	if !r.store.lastLoad["servers"] {
+		t.Errorf("load = %v", r.store.lastLoad)
+	}
+	for _, path := range []string{"?include=servers", "/external/crm-10?include=servers"} {
+		if rp := r.do(grace, "GET", path, ""); rp.Status != 200 {
+			t.Errorf("%s: %d", path, rp.Status)
+		}
+	}
+	// A key that may read users but not servers is given a null resource, and the store is not asked.
+	r = newRig(t)
+	rp = r.do(bob, "GET", "/10?include=servers", "")
+	if rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
+	}
+	// Without the include nothing is attached, and nothing is loaded.
+	r = newRig(t)
+	if rp := r.do(grace, "GET", "/10", ""); rp.Has("relationships") || len(r.store.lastLoad) != 0 {
+		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }

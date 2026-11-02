@@ -9,21 +9,31 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/resp"
 )
 
-// Includes are the related resources a request asked to attach with ?include=, limited to those this panel can show. An include of the
-// servers is accepted by the lists but not shown yet: it waits for the servers of the Application API.
+// Includes are the related resources a request asked to attach with ?include=, limited to those this panel can show.
 type Includes map[string]bool
 
-// includeResource names the resource whose read right an include needs. config and script need none: they are the egg's own.
-var includeResource = map[string]string{
-	"nodes": "nodes", "node": "nodes", "allocations": "allocations", "location": "locations",
-	"eggs": "eggs", "variables": "eggs", "nest": "nests", "config": "", "script": "",
+// includeResources names, for each resource that has includes, the resource whose read right each include needs. config and script
+// need none: they are the egg's own. The same name can need another right on another resource: the variables of an egg are read with
+// the right to read eggs, those of a server with the right to read servers.
+var includeResources = map[string]map[string]string{
+	"users":       {"servers": "servers"},
+	"locations":   {"nodes": "nodes", "servers": "servers"},
+	"nodes":       {"allocations": "allocations", "location": "locations", "servers": "servers"},
+	"allocations": {"node": "nodes", "server": "servers"},
+	"nests":       {"eggs": "eggs", "servers": "servers"},
+	"eggs":        {"nest": "nests", "servers": "servers", "config": "", "script": "", "variables": "eggs"},
+	"servers": {
+		"allocations": "allocations", "user": "users", "subusers": "users", "nest": "nests", "egg": "eggs", "variables": "servers",
+		"location": "locations", "node": "nodes", "databases": "server_databases",
+	},
+	"databases": {"host": "database_hosts", "password": ""},
 }
 
 // Wanted reads the includes of a request against what the resource offers and what can be shown.
 func Wanted(q url.Values, spec listquery.Spec) Includes {
 	inc := Includes{}
 	for _, i := range listquery.ParseIncludes(q, spec.Includes) {
-		if _, ok := includeResource[i.Name]; ok {
+		if _, ok := includeResources[spec.Table][i.Name]; ok {
 			inc[i.Name] = true
 		}
 	}
@@ -32,10 +42,10 @@ func Wanted(q url.Values, spec listquery.Spec) Includes {
 
 // Load is the part of the includes the store has to load: those the key may read. The others are shown as null resources without the
 // store being asked.
-func (inc Includes) Load(v View) Includes {
+func (inc Includes) Load(v View, spec listquery.Spec) Includes {
 	out := Includes{}
 	for name := range inc {
-		if res := includeResource[name]; res == "" || v.CanRead(res) {
+		if res := includeResources[spec.Table][name]; res == "" || v.CanRead(res) {
 			out[name] = true
 		}
 	}
@@ -44,12 +54,12 @@ func (inc Includes) Load(v View) Includes {
 
 func null() resp.Item { return resp.NewItem("null_resource", nil) }
 
-// attach adds the relationship of an include when it was asked for: a null resource if the key may not read it.
-func (v View) attach(it resp.Item, inc Includes, name string, render func() any) resp.Item {
+// attach adds the relationship of an include of the resource owner when it was asked for: a null resource if the key may not read it.
+func (v View) attach(it resp.Item, inc Includes, owner, name string, render func() any) resp.Item {
 	if !inc[name] {
 		return it
 	}
-	if res := includeResource[name]; res != "" && !v.CanRead(res) {
+	if res := includeResources[owner][name]; res != "" && !v.CanRead(res) {
 		return it.With(name, null())
 	}
 	return it.With(name, render())
@@ -71,11 +81,12 @@ type userAttributes struct {
 }
 
 // User shows an account.
-func (v View) User(u User) resp.Item {
-	return resp.NewItem("user", userAttributes{
+func (v View) User(u User, inc Includes) resp.Item {
+	it := resp.NewItem("user", userAttributes{
 		ID: u.ID, ExternalID: u.ExternalID, UUID: u.UUID, Username: u.Username, Email: u.Email, FirstName: u.FirstName, LastName: u.LastName,
 		Language: u.Language, RootAdmin: u.Admin, TwoFactor: u.TwoFactor, CreatedAt: Time(u.CreatedAt), UpdatedAt: Time(u.UpdatedAt),
 	})
+	return v.attach(it, inc, "users", "servers", func() any { return v.serverList(u.Servers) })
 }
 
 type locationAttributes struct {
@@ -89,7 +100,8 @@ type locationAttributes struct {
 // Location shows a location; include nodes attaches its nodes.
 func (v View) Location(l Location, inc Includes) resp.Item {
 	it := resp.NewItem("location", locationAttributes{ID: l.ID, Short: l.Short, Long: l.Long, UpdatedAt: Time(l.UpdatedAt), CreatedAt: Time(l.CreatedAt)})
-	return v.attach(it, inc, "nodes", func() any {
+	it = v.attach(it, inc, "locations", "servers", func() any { return v.serverList(l.Servers) })
+	return v.attach(it, inc, "locations", "nodes", func() any {
 		items := make([]resp.Item, len(l.Nodes))
 		for i, n := range l.Nodes {
 			items[i] = v.Node(n, nil)
@@ -140,19 +152,20 @@ func (v View) Node(n Node, inc Includes) resp.Item {
 		DiskOverallocate: s.DiskOverallocate, UploadSize: s.UploadSize, DaemonListen: s.DaemonListen, DaemonSFTP: s.DaemonSFTP, DaemonBase: s.DaemonBase,
 		CreatedAt: Time(n.CreatedAt), UpdatedAt: Time(n.UpdatedAt), AllocatedResources: allocated{Memory: n.AllocatedMemory, Disk: n.AllocatedDisk},
 	})
-	it = v.attach(it, inc, "allocations", func() any {
+	it = v.attach(it, inc, "nodes", "allocations", func() any {
 		items := make([]resp.Item, len(n.Allocations))
 		for i, a := range n.Allocations {
 			items[i] = v.Allocation(a, nil)
 		}
 		return resp.NewList(items)
 	})
-	return v.attach(it, inc, "location", func() any {
+	it = v.attach(it, inc, "nodes", "location", func() any {
 		if n.Location == nil {
 			return null()
 		}
 		return v.Location(*n.Location, nil)
 	})
+	return v.attach(it, inc, "nodes", "servers", func() any { return v.serverList(n.Servers) })
 }
 
 type allocationAttributes struct {
@@ -167,11 +180,17 @@ type allocationAttributes struct {
 // Allocation shows an allocation; include node attaches its node.
 func (v View) Allocation(a Allocation, inc Includes) resp.Item {
 	it := resp.NewItem("allocation", allocationAttributes{ID: a.ID, IP: a.IP, Alias: a.Alias, Port: a.Port, Notes: a.Notes, Assigned: a.ServerID != nil})
-	return v.attach(it, inc, "node", func() any {
+	it = v.attach(it, inc, "allocations", "node", func() any {
 		if a.Node == nil {
 			return null()
 		}
 		return v.Node(*a.Node, nil)
+	})
+	return v.attach(it, inc, "allocations", "server", func() any {
+		if a.Server == nil {
+			return null()
+		}
+		return v.Server(*a.Server, nil)
 	})
 }
 
@@ -188,13 +207,14 @@ type nestAttributes struct {
 // Nest shows a nest; include eggs attaches its eggs.
 func (v View) Nest(n Nest, inc Includes) resp.Item {
 	it := resp.NewItem("nest", nestAttributes{ID: n.ID, UUID: n.UUID, Author: n.Author, Name: n.Name, Description: n.Description, CreatedAt: Time(n.CreatedAt), UpdatedAt: Time(n.UpdatedAt)})
-	return v.attach(it, inc, "eggs", func() any {
+	it = v.attach(it, inc, "nests", "eggs", func() any {
 		items := make([]resp.Item, len(n.Eggs))
 		for i, e := range n.Eggs {
 			items[i] = v.Egg(e, nil)
 		}
 		return resp.NewList(items)
 	})
+	return v.attach(it, inc, "nests", "servers", func() any { return v.serverList(n.Servers) })
 }
 
 // images writes the docker images as the object the egg has, in its order.
@@ -288,14 +308,14 @@ func (v View) Egg(e Egg, inc Includes) resp.Item {
 		Script:    eggScript{Privileged: e.ScriptPrivileged, Install: e.ScriptInstall, Entry: e.ScriptEntry, Container: e.ScriptContainer, Extends: e.CopyScriptFrom},
 		CreatedAt: Time(e.CreatedAt), UpdatedAt: Time(e.UpdatedAt),
 	})
-	it = v.attach(it, inc, "nest", func() any {
+	it = v.attach(it, inc, "eggs", "nest", func() any {
 		if e.Nest == nil {
 			return null()
 		}
 		return v.Nest(*e.Nest, nil)
 	})
 	// The two that are the egg's own are an item without an object name, as the reference's serializer writes one made from a closure.
-	it = v.attach(it, inc, "config", func() any {
+	it = v.attach(it, inc, "eggs", "config", func() any {
 		if e.ConfigFrom == nil || e.Inherited == nil {
 			return null()
 		}
@@ -303,7 +323,7 @@ func (v View) Egg(e Egg, inc Includes) resp.Item {
 			"files": emptyFilesOrNull(e.Inherited.Files), "startup": jsonOr(e.Inherited.Startup, "null"), "stop": e.Inherited.Stop, "logs": jsonOr(e.Inherited.Logs, "null"),
 		}}
 	})
-	it = v.attach(it, inc, "script", func() any {
+	it = v.attach(it, inc, "eggs", "script", func() any {
 		if e.CopyScriptFrom == nil || e.InheritedScript == nil {
 			return null()
 		}
@@ -311,13 +331,14 @@ func (v View) Egg(e Egg, inc Includes) resp.Item {
 			"privileged": e.ScriptPrivileged, "install": e.InheritedScript.Install, "entry": e.InheritedScript.Entry, "container": e.InheritedScript.Container,
 		}}
 	})
-	return v.attach(it, inc, "variables", func() any {
+	it = v.attach(it, inc, "eggs", "variables", func() any {
 		items := make([]resp.Item, len(e.Variables))
 		for i, x := range e.Variables {
 			items[i] = EggVariableItem(x)
 		}
 		return resp.NewList(items)
 	})
+	return v.attach(it, inc, "eggs", "servers", func() any { return v.serverList(e.Servers) })
 }
 
 // emptyFilesOrNull passes the inherited files on as stored: the reference decodes the column without turning an empty one into an object.

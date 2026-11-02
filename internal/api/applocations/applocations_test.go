@@ -16,6 +16,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/appkit"
 	"github.com/Helles01/raptor-panel/internal/api/listquery"
 	"github.com/Helles01/raptor-panel/internal/nodes"
+	"github.com/Helles01/raptor-panel/internal/servers"
 )
 
 const (
@@ -49,6 +50,9 @@ type store struct {
 }
 
 func (s *store) fill(l appkit.Location, load appkit.Includes) appkit.Location {
+	if load["servers"] {
+		l.Servers = []appkit.Server{{ID: 500, ShortID: "aaaa1111", Config: servers.Server{UUID: "aaaa1111-2222-4333-8444-555555555555", Name: "Survival"}}}
+	}
 	if load["nodes"] {
 		l.Nodes = s.nodesOf[l.ID]
 	}
@@ -178,7 +182,7 @@ func newRig(t *testing.T) *rig {
 	for id, admin := range map[uint64]bool{grace: true, bob: true, cleo: true, dave: false} {
 		w.AddUser(id, admin)
 	}
-	w.GrantApp(grace, "locations=rw", "nodes=read")
+	w.GrantApp(grace, "locations=rw", "nodes=read", "servers=read")
 	w.GrantApp(bob, "locations=read")
 	w.GrantApp(cleo, "users=rw")
 	w.GrantApp(dave, "locations=rw")
@@ -292,10 +296,19 @@ func TestIncludes(t *testing.T) {
 		t.Errorf("answer = %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
 	}
 
-	// The servers are not shown yet; the include is accepted and left out. So is a name that is not an include.
-	for _, q := range []string{"?include=servers", "?include=nothing", "?include=nodes.servers"} {
-		rp = r.do(grace, "GET", "/1"+q, "")
-		if rp.Status != 200 || rp.Has("relationships", "servers") || rp.Has("relationships", "nothing") {
+	// The servers of a location are shown to a key that may read servers, and a null resource is shown to one that may not.
+	r = newRig(t)
+	rp = r.do(grace, "GET", "/1?include=servers", "")
+	if rp.Status != 200 || rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
+		t.Errorf("servers: %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
+	}
+	r = newRig(t)
+	if rp = r.do(bob, "GET", "/1?include=servers", ""); rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+		t.Errorf("no right to servers: %s, load = %v", rp.Raw, r.store.lastLoad)
+	}
+	// A name that is not an include is left out.
+	for _, q := range []string{"?include=nothing", "?include=nodes.nothing"} {
+		if rp = r.do(grace, "GET", "/1"+q, ""); rp.Status != 200 || rp.Has("relationships", "nothing") {
 			t.Errorf("%s: %d %s", q, rp.Status, rp.Raw)
 		}
 	}

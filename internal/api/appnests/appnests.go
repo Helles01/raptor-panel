@@ -71,7 +71,7 @@ func (h *Handlers) ListNests(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Nests)
-	list, total, err := h.d.Store.ListNests(c.Request().Context(), page, perPage, inc.Load(v))
+	list, total, err := h.d.Store.ListNests(c.Request().Context(), page, perPage, inc.Load(v, listquery.Nests))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
@@ -94,7 +94,7 @@ func (h *Handlers) ViewNest(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Nests)
-	n, err := h.d.Store.FindNest(c.Request().Context(), id, inc.Load(v))
+	n, err := h.d.Store.FindNest(c.Request().Context(), id, inc.Load(v, listquery.Nests))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
@@ -113,7 +113,7 @@ func (h *Handlers) ListEggs(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Eggs)
-	list, err := h.d.Store.ListEggs(c.Request().Context(), id, inc.Load(v))
+	list, err := h.d.Store.ListEggs(c.Request().Context(), id, inc.Load(v, listquery.Eggs))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
@@ -140,7 +140,7 @@ func (h *Handlers) ViewEgg(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Eggs)
-	e, err := h.d.Store.FindEgg(c.Request().Context(), nestID, id, inc.Load(v))
+	e, err := h.d.Store.FindEgg(c.Request().Context(), nestID, id, inc.Load(v, listquery.Eggs))
 	if err != nil {
 		return appkit.StoreError(err)
 	}

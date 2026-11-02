@@ -419,3 +419,20 @@ func (c *Client) UpdateConfiguration(ctx context.Context, config []byte) error {
 	}
 	return c.run(ctx, call{method: http.MethodPost, path: "/api/update", body: config, contentType: "application/json"})
 }
+
+// CreateServer asks a node to set a server up from the configuration the panel serves it (GET /api/remote/servers/{uuid}). The node
+// installs the server and, with startOnCompletion, starts it when the installation is done.
+func (c *Client) CreateServer(ctx context.Context, serverUUID string, startOnCompletion bool) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/api/servers", map[string]any{"uuid": serverUUID, "start_on_completion": startOnCompletion}, nil)
+}
+
+// Sync tells a node to fetch the configuration of a server again and apply what it can without a restart.
+func (c *Client) Sync(ctx context.Context, serverUUID string) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/api/servers/"+serverUUID+"/sync", nil, nil)
+}

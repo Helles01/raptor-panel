@@ -87,7 +87,7 @@ func (h *Handlers) List(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Locations)
-	list, total, err := h.d.Store.List(c.Request().Context(), q, page, perPage, inc.Load(v))
+	list, total, err := h.d.Store.List(c.Request().Context(), q, page, perPage, inc.Load(v, listquery.Locations))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
@@ -110,7 +110,7 @@ func (h *Handlers) View(c echo.Context) error {
 	}
 	v := appkit.NewView(p)
 	inc := appkit.Wanted(c.QueryParams(), listquery.Locations)
-	l, err := h.d.Store.Find(c.Request().Context(), id, inc.Load(v))
+	l, err := h.d.Store.Find(c.Request().Context(), id, inc.Load(v, listquery.Locations))
 	if err != nil {
 		return appkit.StoreError(err)
 	}

@@ -36,14 +36,15 @@ func (h *Handlers) List(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	list, total, err := h.d.Store.List(c.Request().Context(), q, page, perPage)
+	v := appkit.NewView(p)
+	inc := appkit.Wanted(c.QueryParams(), listquery.Users)
+	list, total, err := h.d.Store.List(c.Request().Context(), q, page, perPage, inc.Load(v, listquery.Users))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
-	v := appkit.NewView(p)
 	items := make([]resp.Item, len(list))
 	for i, u := range list {
-		items[i] = v.User(u)
+		items[i] = v.User(u, inc)
 	}
 	return appkit.List(c, items, total, perPage, page)
 }
@@ -58,11 +59,13 @@ func (h *Handlers) View(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	u, err := h.d.Store.Find(c.Request().Context(), id)
+	v := appkit.NewView(p)
+	inc := appkit.Wanted(c.QueryParams(), listquery.Users)
+	u, err := h.d.Store.Find(c.Request().Context(), id, inc.Load(v, listquery.Users))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
-	return c.JSON(http.StatusOK, appkit.NewView(p).User(u))
+	return c.JSON(http.StatusOK, v.User(u, inc))
 }
 
 // External is GET /users/external/{external}: the user an outside system calls by its own identifier.
@@ -71,11 +74,13 @@ func (h *Handlers) External(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	u, err := h.d.Store.FindExternal(c.Request().Context(), c.Param("external"))
+	v := appkit.NewView(p)
+	inc := appkit.Wanted(c.QueryParams(), listquery.Users)
+	u, err := h.d.Store.FindExternal(c.Request().Context(), c.Param("external"), inc.Load(v, listquery.Users))
 	if err != nil {
 		return appkit.StoreError(err)
 	}
-	return c.JSON(http.StatusOK, appkit.NewView(p).User(u))
+	return c.JSON(http.StatusOK, v.User(u, inc))
 }
 
 type body struct {
@@ -157,7 +162,7 @@ func (h *Handlers) Create(c echo.Context) error {
 	} else {
 		h.log(c, p, u.ID, activity.UserCreate, props)
 	}
-	return appkit.Created(c, appkit.NewView(p).User(u), h.d.BaseURL, "/api/application/users/"+strconv.FormatUint(u.ID, 10))
+	return appkit.Created(c, appkit.NewView(p).User(u, nil), h.d.BaseURL, "/api/application/users/"+strconv.FormatUint(u.ID, 10))
 }
 
 // Update is PATCH /users/{user}. As in the reference the address, user name and both names are needed every time.
@@ -171,7 +176,7 @@ func (h *Handlers) Update(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	cur, err := h.d.Store.Find(ctx, id)
+	cur, err := h.d.Store.Find(ctx, id, nil)
 	if err != nil {
 		return appkit.StoreError(err)
 	}
@@ -203,7 +208,7 @@ func (h *Handlers) Update(c echo.Context) error {
 	if err != nil {
 		return appkit.StoreError(err)
 	}
-	return c.JSON(http.StatusOK, appkit.NewView(p).User(u))
+	return c.JSON(http.StatusOK, appkit.NewView(p).User(u, nil))
 }
 
 // Delete is DELETE /users/{user}: a user who owns servers is not deleted.

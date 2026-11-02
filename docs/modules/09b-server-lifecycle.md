@@ -3,6 +3,8 @@
 Status: **groundwork done** (2026-10-23): the rules of `PATCH …/servers/{id}/details`, `PATCH …/startup`, `POST …/suspend|unsuspend`, `POST …/reinstall` and `DELETE …/servers/{id}[/force]`, without a database
 or a node. The creation and the build change are in `09a-server-rules.md`.
 
+The routes over storage interfaces are described in `08d-application-server-endpoints.md` (servers, their databases and their includes).
+
 ## Done: `internal/servers/lifecycle.go` (and `field.Text`)
 | Function | Content |
 |---|---|

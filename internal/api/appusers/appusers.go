@@ -31,10 +31,11 @@ type CreateRequest struct {
 // Store is the part of the storage the routes need. The unique keys of the users (email, username, external_id) answer
 // *appkit.TakenError with the field, which is a 422.
 type Store interface {
-	List(ctx context.Context, q listquery.Query, page, perPage int) ([]appkit.User, int, error)
+	List(ctx context.Context, q listquery.Query, page, perPage int, load appkit.Includes) ([]appkit.User, int, error)
+	// List, Find and FindExternal fill the relations named in load (see appkit.Includes).
 	// Find returns a user, or appkit.ErrNotFound.
-	Find(ctx context.Context, id uint64) (appkit.User, error)
-	FindExternal(ctx context.Context, externalID string) (appkit.User, error)
+	Find(ctx context.Context, id uint64, load appkit.Includes) (appkit.User, error)
+	FindExternal(ctx context.Context, externalID string, load appkit.Includes) (appkit.User, error)
 	Create(ctx context.Context, r CreateRequest) (appkit.User, error)
 	// Update stores the new account. The effects of the change that the database holds (the user's sessions and tokens, the pending
 	// reset tokens, the application keys of someone who is no longer an administrator) are carried out in the same transaction.
