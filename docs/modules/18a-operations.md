@@ -33,3 +33,7 @@ standard input, and an empty line is refused (no one is given a password they di
 ## Tests
 `healthapi` 100 %, `admincli` 97 %, `mail` 94 %. The mutation spot checks killed every mutant (streams of the secrets, required flags, the
 empty password line, the mapping of the encryption, the status codes of the checks, the order of the router's middleware).
+
+## Since: the pieces around the routes
+The loops and the web server are in `19a-app-and-inventory.md` (`internal/app`), the pages in `03i-pages.md`, and the full list of what the SQL layer has to
+implement in `../store-contract.md`. The plan to the first test is `../first-test.md`.

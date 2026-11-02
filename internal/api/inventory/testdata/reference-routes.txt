@@ -1,0 +1,167 @@
+# The routes of the reference panel (v1.15.2) that Raptor serves, written from reference/routes/*.php. A parameter is {} and a
+# catch-all is *. "MISSING" lines are not routes: they name what is left out on purpose, see docs/plan.md chapter 6.5.
+
+# routes/base.php
+GET /
+GET /account
+GET /locales/locale.json
+GET /*
+
+# routes/auth.php
+GET /auth/login
+GET /auth/password
+GET /auth/password/reset/{}
+GET /auth/*
+POST /auth/login
+POST /auth/login/checkpoint
+POST /auth/password
+POST /auth/password/reset
+POST /auth/logout
+
+# Laravel Sanctum's own route, which the frontend calls before it signs in.
+GET /sanctum/csrf-cookie
+
+# routes/api-client.php
+GET /api/client
+GET /api/client/permissions
+GET /api/client/account
+GET /api/client/account/two-factor
+POST /api/client/account/two-factor
+POST /api/client/account/two-factor/disable
+PUT /api/client/account/email
+PUT /api/client/account/password
+GET /api/client/account/activity
+GET /api/client/account/api-keys
+POST /api/client/account/api-keys
+DELETE /api/client/account/api-keys/{}
+GET /api/client/account/ssh-keys
+POST /api/client/account/ssh-keys
+POST /api/client/account/ssh-keys/remove
+
+GET /api/client/servers/{}
+GET /api/client/servers/{}/websocket
+GET /api/client/servers/{}/resources
+GET /api/client/servers/{}/activity
+POST /api/client/servers/{}/command
+POST /api/client/servers/{}/power
+
+GET /api/client/servers/{}/databases
+POST /api/client/servers/{}/databases
+POST /api/client/servers/{}/databases/{}/rotate-password
+DELETE /api/client/servers/{}/databases/{}
+
+GET /api/client/servers/{}/files/list
+GET /api/client/servers/{}/files/contents
+GET /api/client/servers/{}/files/download
+PUT /api/client/servers/{}/files/rename
+POST /api/client/servers/{}/files/copy
+POST /api/client/servers/{}/files/write
+POST /api/client/servers/{}/files/compress
+POST /api/client/servers/{}/files/decompress
+POST /api/client/servers/{}/files/delete
+POST /api/client/servers/{}/files/create-folder
+POST /api/client/servers/{}/files/chmod
+POST /api/client/servers/{}/files/pull
+GET /api/client/servers/{}/files/upload
+
+GET /api/client/servers/{}/schedules
+POST /api/client/servers/{}/schedules
+GET /api/client/servers/{}/schedules/{}
+POST /api/client/servers/{}/schedules/{}
+POST /api/client/servers/{}/schedules/{}/execute
+DELETE /api/client/servers/{}/schedules/{}
+POST /api/client/servers/{}/schedules/{}/tasks
+POST /api/client/servers/{}/schedules/{}/tasks/{}
+DELETE /api/client/servers/{}/schedules/{}/tasks/{}
+
+GET /api/client/servers/{}/network/allocations
+POST /api/client/servers/{}/network/allocations
+POST /api/client/servers/{}/network/allocations/{}
+POST /api/client/servers/{}/network/allocations/{}/primary
+DELETE /api/client/servers/{}/network/allocations/{}
+
+GET /api/client/servers/{}/users
+POST /api/client/servers/{}/users
+GET /api/client/servers/{}/users/{}
+POST /api/client/servers/{}/users/{}
+DELETE /api/client/servers/{}/users/{}
+
+GET /api/client/servers/{}/backups
+POST /api/client/servers/{}/backups
+GET /api/client/servers/{}/backups/{}
+GET /api/client/servers/{}/backups/{}/download
+POST /api/client/servers/{}/backups/{}/lock
+POST /api/client/servers/{}/backups/{}/restore
+DELETE /api/client/servers/{}/backups/{}
+
+GET /api/client/servers/{}/startup
+PUT /api/client/servers/{}/startup/variable
+
+POST /api/client/servers/{}/settings/rename
+POST /api/client/servers/{}/settings/reinstall
+PUT /api/client/servers/{}/settings/docker-image
+
+# routes/api-application.php
+GET /api/application/users
+GET /api/application/users/{}
+GET /api/application/users/external/{}
+POST /api/application/users
+PATCH /api/application/users/{}
+DELETE /api/application/users/{}
+
+GET /api/application/nodes
+GET /api/application/nodes/deployable
+GET /api/application/nodes/{}
+GET /api/application/nodes/{}/configuration
+POST /api/application/nodes
+PATCH /api/application/nodes/{}
+DELETE /api/application/nodes/{}
+GET /api/application/nodes/{}/allocations
+POST /api/application/nodes/{}/allocations
+DELETE /api/application/nodes/{}/allocations/{}
+
+GET /api/application/locations
+GET /api/application/locations/{}
+POST /api/application/locations
+PATCH /api/application/locations/{}
+DELETE /api/application/locations/{}
+
+GET /api/application/servers
+GET /api/application/servers/{}
+GET /api/application/servers/external/{}
+PATCH /api/application/servers/{}/details
+PATCH /api/application/servers/{}/build
+PATCH /api/application/servers/{}/startup
+POST /api/application/servers
+POST /api/application/servers/{}/suspend
+POST /api/application/servers/{}/unsuspend
+POST /api/application/servers/{}/reinstall
+DELETE /api/application/servers/{}
+DELETE /api/application/servers/{}/{}
+GET /api/application/servers/{}/databases
+GET /api/application/servers/{}/databases/{}
+POST /api/application/servers/{}/databases
+POST /api/application/servers/{}/databases/{}/reset-password
+DELETE /api/application/servers/{}/databases/{}
+
+GET /api/application/nests
+GET /api/application/nests/{}
+GET /api/application/nests/{}/eggs
+GET /api/application/nests/{}/eggs/{}
+
+# routes/api-remote.php
+POST /api/remote/sftp/auth
+GET /api/remote/servers
+POST /api/remote/servers/reset
+POST /api/remote/activity
+GET /api/remote/servers/{}
+GET /api/remote/servers/{}/install
+POST /api/remote/servers/{}/install
+POST /api/remote/servers/{}/transfer/failure
+POST /api/remote/servers/{}/transfer/success
+GET /api/remote/backups/{}
+POST /api/remote/backups/{}
+POST /api/remote/backups/{}/restore
+
+# routes/admin.php: the Blade administration is not ported (plan 2.1 and 6.5)
+MISSING /admin

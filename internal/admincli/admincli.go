@@ -61,17 +61,31 @@ func flags(name string) *flag.FlagSet {
 	return fs
 }
 
+// parse reads the flags and returns the arguments that are not flags. The flag package stops at the first argument that is not a flag,
+// so `dbhost update 3 --name x` would lose its flags; parse goes on after each such argument, and "--" still ends the flags.
 func parse(fs *flag.FlagSet, args []string, positional int) ([]string, error) {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil, usagef("%s", usageOf(fs))
+	var rest []string
+	for {
+		if len(args) > 0 && args[0] == "--" {
+			rest = append(rest, args[1:]...)
+			break
 		}
-		return nil, usagef("%v", err)
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, usagef("%s", usageOf(fs))
+			}
+			return nil, usagef("%v", err)
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		rest = append(rest, fs.Arg(0))
+		args = fs.Args()[1:]
 	}
-	if fs.NArg() != positional {
-		return nil, usagef("%s takes %d argument(s), not %d", fs.Name(), positional, fs.NArg())
+	if len(rest) != positional {
+		return nil, usagef("%s takes %d argument(s), not %d", fs.Name(), positional, len(rest))
 	}
-	return fs.Args(), nil
+	return rest, nil
 }
 
 func usageOf(fs *flag.FlagSet) string {

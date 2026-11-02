@@ -40,3 +40,8 @@ The operations behind the commands are written over a store interface (2026-11-0
 
 ## Verification
 `scripts/check.sh` is green.
+
+## Done since (2026-11-02, second round): the commands that look and the database hosts
+`apikey list|revoke`, `user list`, `location list`, `node list`, `settings get` (over `admin.Directory`) and `dbhost create|list|test|update|rotate-password|delete`
+(over `admin.HostService`), see `14c-database-hosts.md`. `admincli.All(Services{…})` builds the command table from the parts that exist. The commands still
+are not registered in `cmd/raptor`; they wait for the stores.
