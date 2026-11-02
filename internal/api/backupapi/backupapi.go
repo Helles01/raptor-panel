@@ -71,15 +71,23 @@ type StartRequest struct {
 	Backup   NewBackup
 	// Check is called with the server's backup limit, the backups that count against it and the creation times of all the backups the
 	// server ever had in the throttle window (deleted ones too, so that deleting and starting again does not get round it). An error
-	// ends the request and is returned as it is.
-	Check func(limit *int64, existing []backups.Existing, started []time.Time) error
+	// ends the request and is returned as it is; an admission that says Prune makes the store delete that backup first, in the same
+	// transaction.
+	Check func(limit *int64, existing []backups.Existing, started []time.Time) (backups.Admission, error)
+}
+
+// Started is the answer to a start: the new backup and, when the server was at its limit and the request was to replace the oldest, the
+// backup whose row the store deleted in the same transaction to make room (its archive on the node is still to be deleted).
+type Started struct {
+	Record Record
+	Pruned *Record
 }
 
 // Store is the part of the storage the routes need. Every method works on the backups of the one server.
 type Store interface {
 	Page(ctx context.Context, serverID uint64, offset, limit int) (Page, error)
 	Find(ctx context.Context, serverID uint64, uuid string) (Record, error)
-	Start(ctx context.Context, r StartRequest) (Record, error)
+	Start(ctx context.Context, r StartRequest) (Started, error)
 	SetLocked(ctx context.Context, serverID, backupID uint64, locked bool) error
 	// Delete removes the backup. The throttle still counts it.
 	Delete(ctx context.Context, serverID, backupID uint64) error
@@ -144,7 +152,8 @@ type Deps struct {
 
 // Handlers are the endpoints.
 type Handlers struct {
-	d Deps
+	d   Deps
+	svc *Service
 }
 
 // New checks the dependencies and returns the endpoints.
@@ -161,7 +170,13 @@ func New(d Deps) (*Handlers, error) {
 	if d.Random == nil {
 		d.Random = rand.Reader
 	}
-	return &Handlers{d: d}, nil
+	svc, err := NewService(ServiceDeps{
+		Store: d.Store, Targets: d.Targets, Daemon: d.Daemon, ThrottleLimit: d.ThrottleLimit, ThrottlePeriod: d.ThrottlePeriod, Logger: d.Logger, Now: d.Now, Random: d.Random,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Handlers{d: d, svc: svc}, nil
 }
 
 // Register adds the routes below /api/client/servers/{server}/backups.

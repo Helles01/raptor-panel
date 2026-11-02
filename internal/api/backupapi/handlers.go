@@ -19,7 +19,6 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/resp"
 	"github.com/Helles01/raptor-panel/internal/api/validate"
 	"github.com/Helles01/raptor-panel/internal/backups"
-	"github.com/Helles01/raptor-panel/internal/ids"
 	"github.com/Helles01/raptor-panel/internal/permissions"
 	"github.com/Helles01/raptor-panel/internal/servers"
 	"github.com/Helles01/raptor-panel/internal/wings"
@@ -176,22 +175,7 @@ func (h *Handlers) Start(c echo.Context) error {
 	// that nobody can remove.
 	locked := body.Locked.State == field.Valid && body.Locked.V && permissions.Has(p.Permissions, permissions.BackupDelete)
 
-	uuid, err := ids.UUIDv4(h.d.Random)
-	if err != nil {
-		return apierr.Internal(err)
-	}
-	ctx := c.Request().Context()
-	rec, err := h.d.Store.Start(ctx, StartRequest{
-		ServerID: p.Server.ID,
-		Backup:   NewBackup{UUID: uuid, Name: name, Disk: backups.DiskWings, Ignored: ignored, Locked: locked},
-		Check: func(limit *int64, existing []backups.Existing, started []time.Time) error {
-			if err := backups.Throttle(started, h.d.Now(), h.d.ThrottleLimit, h.d.ThrottlePeriod); err != nil {
-				return err
-			}
-			_, err := backups.Admit(limit, existing, false)
-			return err
-		},
-	})
+	rec, err := h.svc.Start(c.Request().Context(), p.Server.ID, StartParams{Name: name, Ignored: ignored, Locked: locked})
 	var throttle *backups.ThrottleError
 	var tooMany *backups.TooManyError
 	switch {
@@ -199,22 +183,14 @@ func (h *Handlers) Start(c echo.Context) error {
 		return &apierr.Error{Status: http.StatusTooManyRequests, Code: apierr.CodeThrottled, Detail: throttle.Error(), RetryAfter: time.Duration(throttle.RetryAfterSeconds()) * time.Second}
 	case errors.As(err, &tooMany):
 		return apierr.Display(tooMany.Error())
+	case errors.Is(err, controlapi.ErrNotFound):
+		return apierr.NotFound()
 	case err != nil:
+		var we *wings.Error
+		if errors.As(err, &we) {
+			return controlapi.DaemonError(err)
+		}
 		return storeError(err)
-	}
-
-	target, err := h.d.Targets.For(ctx, p.Server.ID)
-	if err == nil {
-		err = h.d.Daemon.Create(ctx, target.Node, target.UUID, rec.Disk, rec.UUID, strings.Join(ignored, "\n"))
-	}
-	if err != nil {
-		if delErr := h.d.Store.Delete(ctx, p.Server.ID, rec.ID); delErr != nil {
-			h.d.Logger.Error("a backup that could not be started was not taken back", "server", p.Server.ID, "backup", rec.UUID, "error", delErr)
-		}
-		if errors.Is(err, controlapi.ErrNotFound) {
-			return apierr.NotFound()
-		}
-		return controlapi.DaemonError(err)
 	}
 	h.log(c, p, activity.ServerBackupStart, rec, map[string]any{"name": rec.Name, "locked": rec.Locked})
 	return c.JSON(http.StatusOK, h.item(rec))

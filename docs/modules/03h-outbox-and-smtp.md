@@ -24,7 +24,7 @@ Delivery over SMTP with `net/smtp`: `StartTLS` (the default: a server that does 
 (a password is never sent without TLS except to this machine), sign-in with PLAIN, a time limit for the whole delivery and the context.
 Which failures are for good: a refused recipient or message with a code of 500 to 599, or a message that cannot be written (a bad address
 or subject); a refused sender, a failed sign-in or TLS, a server that is not there are not: they are cured by waiting or by the
-administrator. Compat C-067. The settings come from the settings table (`mail:mailers:smtp:*`, 08b); the wiring that reads them waits.
+administrator. Compat C-067. The settings come from the settings table (`mail:mailers:smtp:*`, 08b): `mail.OptionsFromSettings` reads them (`18a-operations.md`); the wiring that calls it waits.
 
 ## Tests
 `outbox` 97 %, `mail` 94 % statement coverage. The sender is tested against a fake SMTP server in the test (greeting, EHLO, STARTTLS and

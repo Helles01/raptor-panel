@@ -188,6 +188,8 @@ type Group struct {
 	r      *Router
 	prefix string
 	mw     []echo.MiddlewareFunc
+	// after runs after the route has been authorized, so that it can tell who is asking.
+	after []echo.MiddlewareFunc
 }
 
 // NewRouter returns a Router. It panics if there is no Authorizer: a router that does not authorize is never wanted.
@@ -202,7 +204,14 @@ func NewRouter(e *echo.Echo, authz Authorizer) *Router {
 
 // Sub returns a sub-group below prefix. Its middleware runs before the middleware of the routes in it.
 func (g Group) Sub(prefix string, mw ...echo.MiddlewareFunc) Group {
-	return Group{r: g.r, prefix: g.prefix + prefix, mw: append(append([]echo.MiddlewareFunc(nil), g.mw...), mw...)}
+	return Group{r: g.r, prefix: g.prefix + prefix, mw: append(append([]echo.MiddlewareFunc(nil), g.mw...), mw...), after: g.after}
+}
+
+// AfterAuth returns a group whose routes run the middleware after the route has been authorized, where the middleware of Sub runs before:
+// it is for what depends on who is asking, such as a limit on the requests of a user. A request that is refused by the authorizer never
+// reaches it.
+func (g Group) AfterAuth(mw ...echo.MiddlewareFunc) Group {
+	return Group{r: g.r, prefix: g.prefix, mw: g.mw, after: append(append([]echo.MiddlewareFunc(nil), g.after...), mw...)}
 }
 
 func (g Group) GET(path string, h echo.HandlerFunc, p Permission, mw ...echo.MiddlewareFunc) {
@@ -242,6 +251,7 @@ func (g Group) Handle(method, path string, h echo.HandlerFunc, p Permission, mw 
 
 	chain := append(append([]echo.MiddlewareFunc(nil), g.mw...), mw...)
 	chain = append(chain, g.r.authorize(p))
+	chain = append(chain, g.after...)
 
 	g.r.e.Add(method, full, h, chain...)
 	*g.r.routes = append(*g.r.routes, Route{Method: method, Path: full, Permission: p})

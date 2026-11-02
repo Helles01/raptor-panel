@@ -3,6 +3,8 @@
 Status: **handlers done over storage interfaces** (2026-10-26): `internal/api/backupapi` (the client routes) and
 `internal/api/remoteapi/backups.go` (the routes the node calls). The rules are in `internal/backups` (13a).
 
+A backup made by a schedule goes through `backupapi.Service` (`12d-task-executor-and-maintenance.md`), which also replaces the oldest unlocked backup of a server at its limit (C-068).
+
 ## Client routes: `/api/client/servers/{server}/backups`
 
 | Route | Permission | What it does |

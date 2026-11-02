@@ -485,3 +485,38 @@ func TestPermissionStringShowsStateAndExemption(t *testing.T) {
 		}
 	}
 }
+
+func TestAfterAuthMiddlewareRunsAfterTheAuthorizerAndIsInherited(t *testing.T) {
+	var order []string
+	az := &recordingAuthorizer{deny: func(p Permission) error {
+		order = append(order, "authorize")
+		if p.Kind == KindAdmin {
+			return apierr.Forbidden("no")
+		}
+		return nil
+	}}
+	s, _ := newTestServer(t, az)
+	mark := func(name string) echo.MiddlewareFunc {
+		return func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error { order = append(order, name); return next(c) }
+		}
+	}
+	g := s.Router.Sub("/v1", mark("before")).AfterAuth(mark("after-1")).Sub("/deeper").AfterAuth(mark("after-2"))
+	g.GET("/ok", func(c echo.Context) error { order = append(order, "handler"); return c.NoContent(204) }, Authenticated(), mark("route"))
+	g.GET("/admin", func(c echo.Context) error { order = append(order, "handler"); return c.NoContent(204) }, Admin())
+
+	if rec := serve(t, s, http.MethodGet, "/v1/deeper/ok"); rec.Code != 204 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := strings.Join(order, ","); got != "before,route,authorize,after-1,after-2,handler" {
+		t.Errorf("order = %s", got)
+	}
+	// What the authorizer refuses never reaches the middleware that runs after it, or the handler.
+	order = nil
+	if rec := serve(t, s, http.MethodGet, "/v1/deeper/admin"); rec.Code != 403 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := strings.Join(order, ","); got != "before,authorize" {
+		t.Errorf("order = %s", got)
+	}
+}

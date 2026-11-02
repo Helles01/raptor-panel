@@ -40,3 +40,12 @@ func NodeFrom(c echo.Context) (Node, bool) {
 	n, ok := c.Get(nodeKey).(Node)
 	return n, ok
 }
+
+// RateKey is the bucket a request counts against in the limits of the two APIs: the UUID of the user once the route has been authorized,
+// so that no change of address is a way round the limit, and the address of the client when no user is known. It is never empty.
+func RateKey(c echo.Context) string {
+	if p, ok := From(c); ok && p.User.UUID != "" {
+		return p.User.UUID
+	}
+	return c.RealIP()
+}

@@ -15,6 +15,9 @@ registered.
 | `internal/eggs` | Reading and validating PTDL_v1 and PTDL_v2 egg files, keeping the file order of the Docker images. **It accepts all 14 official eggs of the reference** (a test over the `reference/database/Seeders/eggs` files). |
 | `internal/settings` | The allow-list of changeable settings and their value checks (`settings::` key prefix), without secrets. |
 
+## Done since: `internal/admincli`
+The command layer (flags, streams, usage errors) is written and tested over `internal/admin` (2026-11-02, `18a-operations.md`). It is not registered in `cmd/raptor` until the store exists.
+
 ## Done since: `internal/admin`
 The operations behind the commands are written over a store interface (2026-11-02): making a user (a password that is not given is made and shown once), deleting a user who owns no servers, turning off two-factor, making an API key (account or application, with levels and addresses; only the hash of the secret is stored, the whole key is shown once), a location, a node (with the `config.yml` its Wings needs, token included, shown once), a nest, importing an egg file and changing a setting. The commands that read arguments and call them are still not registered, as they need the store.
 

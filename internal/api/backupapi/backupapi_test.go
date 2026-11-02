@@ -52,6 +52,7 @@ type store struct {
 
 	records []Record
 	ledger  []time.Time // when every backup the server ever had was started, deleted ones too
+	pruned  []uint64    // the backups whose rows went to make room for another
 	limit   *int64
 	nextID  uint64
 	fail    error
@@ -94,11 +95,11 @@ func (s *store) Find(_ context.Context, _ uint64, uuid string) (Record, error) {
 	return Record{}, ErrNotFound
 }
 
-func (s *store) Start(_ context.Context, r StartRequest) (Record, error) {
+func (s *store) Start(_ context.Context, r StartRequest) (Started, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail != nil {
-		return Record{}, s.fail
+		return Started{}, s.fail
 	}
 	var existing []backups.Existing
 	for _, x := range s.records {
@@ -106,15 +107,28 @@ func (s *store) Start(_ context.Context, r StartRequest) (Record, error) {
 			existing = append(existing, backups.Existing{ID: x.ID, CreatedAt: x.CreatedAt, Locked: x.Locked})
 		}
 	}
-	if err := r.Check(s.limit, existing, s.ledger); err != nil {
-		return Record{}, err
+	admission, err := r.Check(s.limit, existing, s.ledger)
+	if err != nil {
+		return Started{}, err
+	}
+	var pruned *Record
+	if admission.Prune {
+		for i, x := range s.records {
+			if x.ID == admission.PruneID {
+				x := x
+				pruned = &x
+				s.records = append(s.records[:i:i], s.records[i+1:]...)
+				s.pruned = append(s.pruned, x.ID)
+				break
+			}
+		}
 	}
 	s.starts = append(s.starts, r.Backup)
 	s.nextID++
 	rec := Record{ID: s.nextID, UUID: r.Backup.UUID, Name: r.Backup.Name, Disk: r.Backup.Disk, IgnoredFiles: r.Backup.Ignored, Locked: r.Backup.Locked, CreatedAt: t0}
 	s.records = append(s.records, rec)
 	s.ledger = append(s.ledger, t0)
-	return rec, nil
+	return Started{Record: rec, Pruned: pruned}, nil
 }
 
 func (s *store) SetLocked(_ context.Context, _, id uint64, locked bool) error {
