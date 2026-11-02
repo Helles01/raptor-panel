@@ -15,6 +15,7 @@ import (
 
 	"github.com/Helles01/raptor-panel/internal/api/apierr"
 	"github.com/Helles01/raptor-panel/internal/api/field"
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -173,4 +174,18 @@ func (v *Validator) Bytes(field, value string, min, max int) {
 	if n := len(value); n < min || n > max {
 		v.fail(field, "between", fmt.Sprintf("The %s must be between %d and %d bytes.", name(field), min, max))
 	}
+}
+
+// Custom records a failure of a rule that the other methods do not cover, with its own text. As with the others, only the
+// first failure of a field is kept.
+func (v *Validator) Custom(field, rule, detail string) { v.fail(field, rule, detail) }
+
+// FromField turns the refusal of a domain package, an *fielderr.Error, into the 422 for its field, in the framework's wording
+// ("The username must be ..."). Any other error comes back as it is, so a caller can pass on what it does not know.
+func FromField(err error) error {
+	fe, ok := fielderr.Of(err)
+	if !ok {
+		return err
+	}
+	return apierr.Validation([]apierr.FieldError{{Field: fe.Field, Rule: "invalid", Detail: fmt.Sprintf("The %s %s.", name(fe.Field), fe.Message)}})
 }

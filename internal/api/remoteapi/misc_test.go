@@ -20,9 +20,9 @@ func TestNewNeedsEverything(t *testing.T) {
 		"no activity": func(d *Deps) { d.Activity = nil },
 		"no events":   func(d *Deps) { d.Events = nil },
 		"no outbox":   func(d *Deps) { d.Outbox = nil },
-		"no old node": func(d *Deps) { d.OldNodes = nil },
-		"no tracker":  func(d *Deps) { d.Failures = nil },
-		"no logger":   func(d *Deps) { d.Logger = nil },
+		"no old node": func(d *Deps) { d.OldNodes = nil }, "no backups": func(d *Deps) { d.Backups = nil },
+		"no tracker": func(d *Deps) { d.Failures = nil },
+		"no logger":  func(d *Deps) { d.Logger = nil },
 	} {
 		d := full
 		mutate(&d)

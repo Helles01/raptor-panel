@@ -4,6 +4,8 @@ Status: **groundwork done** (2026-10-22): the rules and the SQL for the database
 no database to test. The endpoints (`/servers/{server}/databases*`, the application API for database hosts), the connection to
 the hosts and the encrypted host passwords wait for the schema and for a MariaDB to run the integration tests against.
 
+The routes over storage interfaces are described in `14b-database-endpoints.md`.
+
 ## Done: `internal/dbhosts`
 | Function | Content |
 |---|---|

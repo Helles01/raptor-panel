@@ -3,6 +3,8 @@
 Status: **groundwork done** (2026-10-22): the rules of backups that need no database. The endpoints (`/servers/{server}/backups*`,
 `/api/remote/backups/*`), the calls to Wings and the S3 handling wait for the schema.
 
+The routes over storage interfaces are described in `13b-backup-endpoints.md`.
+
 ## Done: `internal/backups`
 | Function | Content |
 |---|---|

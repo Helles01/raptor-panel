@@ -65,7 +65,7 @@ func (h *Handlers) Power(c echo.Context) error {
 		return err
 	}
 	if err := h.d.Daemon.Power(c.Request().Context(), t.Node, t.UUID, signal); err != nil {
-		return daemonError(err)
+		return DaemonError(err)
 	}
 	h.log(c, p, powerEvents[signal], nil)
 	return c.NoContent(http.StatusNoContent)
@@ -118,7 +118,7 @@ func (h *Handlers) Command(c echo.Context) error {
 		if errors.As(err, &we) && we.NodeStatus == http.StatusBadGateway {
 			return apierr.Http(http.StatusBadGateway, "Server must be online in order to send commands.")
 		}
-		return daemonError(err)
+		return DaemonError(err)
 	}
 	h.log(c, p, activity.ServerConsoleCommand, map[string]any{"command": body.Command.V})
 	return c.NoContent(http.StatusNoContent)

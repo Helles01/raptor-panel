@@ -4,6 +4,8 @@ Status: **groundwork done** (2026-10-22): the rules that need no node. The endpo
 the node (`list-directory`, `contents`, `write`, `rename`, …), the upload and download tokens and the activity events wait for
 the schema and for a real Wings.
 
+The routes over storage interfaces are described in `15b-file-endpoints.md`.
+
 ## Done: `internal/files`
 | Function | Content |
 |---|---|

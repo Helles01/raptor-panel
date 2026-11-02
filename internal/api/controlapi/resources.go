@@ -39,7 +39,7 @@ func (h *Handlers) Resources(c echo.Context) error {
 			return err
 		}
 		if d, err = h.d.Daemon.Details(c.Request().Context(), t.Node, t.UUID); err != nil {
-			return daemonError(err)
+			return DaemonError(err)
 		}
 		h.cache.put(p.Server.UUID, d)
 	}

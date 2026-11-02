@@ -3,7 +3,9 @@ package clientapi
 import (
 	"crypto/md5" //nolint:gosec // only the address of a picture at a public service, as in the reference
 	"encoding/hex"
+	"errors"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -344,7 +346,9 @@ func invocation(s Server, hideAll bool) string {
 }
 
 // person turns a user into what the client API shows of one.
-func (h *Handlers) person(u Person) (userAttributes, error) {
+func (h *Handlers) person(u Person) (userAttributes, error) { return personAttributes(u, h.d.Location) }
+
+func personAttributes(u Person, loc *time.Location) (userAttributes, error) {
 	identifier, err := ids.Realtime("user", u.UUID)
 	if err != nil {
 		return userAttributes{}, apierr.Internal(err)
@@ -357,6 +361,42 @@ func (h *Handlers) person(u Person) (userAttributes, error) {
 		Email:      u.Email,
 		Image:      "https://gravatar.com/avatar/" + hex.EncodeToString(sum[:]),
 		TwoFactor:  u.UsesTOTP,
-		CreatedAt:  u.CreatedAt.In(h.d.Location).Format(atom),
+		CreatedAt:  u.CreatedAt.In(loc).Format(atom),
 	}, nil
+}
+
+// SubuserItem is the object of a subuser as the client API shows it: the user, with the permissions they were given. The routes
+// that change subusers answer with it too.
+func SubuserItem(u Person, permissions []string, loc *time.Location) (resp.Item, error) {
+	attrs, err := personAttributes(u, loc)
+	if err != nil {
+		return resp.Item{}, err
+	}
+	if permissions == nil {
+		permissions = []string{}
+	}
+	return resp.NewItem("server_subuser", subuserAttributes{userAttributes: attrs, Permissions: permissions}), nil
+}
+
+// VariableItem is the object of an egg variable as the client API shows it to a user, who may only see the variables the egg
+// marks as viewable: asking for another is a bug of the caller, and nothing is shown.
+func VariableItem(v Variable) (resp.Item, error) {
+	if !v.UserViewable {
+		return resp.Item{}, errors.New("clientapi: a variable the user may not see was asked for")
+	}
+	return resp.NewItem("egg_variable", variableAttributes{
+		Name: v.Name, Description: v.Description, EnvVariable: v.EnvName, DefaultValue: v.Default, ServerValue: v.ServerValue,
+		IsEditable: v.UserEditable, Rules: v.Rules,
+	}), nil
+}
+
+// StartupCommand is the startup command of a server as it is shown, with the values of the variables a user may not see (or all, with
+// hideAll) as "[hidden]".
+func StartupCommand(s Server, hideAll bool) string { return invocation(s, hideAll) }
+
+// AllocationItem is the object of an allocation of a server as the client API shows it; isDefault says it is the primary one.
+func AllocationItem(a Allocation, isDefault bool) resp.Item {
+	return resp.NewItem("allocation", allocationAttributes{
+		ID: a.ID, IP: a.IP, IPAlias: a.IPAlias, Port: a.Port, Notes: a.Notes, IsDefault: isDefault,
+	})
 }

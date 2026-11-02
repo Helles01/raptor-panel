@@ -84,6 +84,8 @@ type Store interface {
 	Delete(ctx context.Context, key string) error
 	// DeleteForUser removes every session of a user, for example after a password change.
 	DeleteForUser(ctx context.Context, userID uint64) error
+	// DeleteForUserExcept removes every session of a user but the one with the key keep, which stays signed in after a password change.
+	DeleteForUserExcept(ctx context.Context, userID uint64, keep string) error
 }
 
 // Options configure a Manager.
@@ -212,6 +214,14 @@ func (m *Manager) Destroy(ctx context.Context, s *Session) error {
 // RevokeUser ends every session of a user.
 func (m *Manager) RevokeUser(ctx context.Context, userID uint64) error {
 	return m.store.DeleteForUser(ctx, userID)
+}
+
+// RevokeOthers ends every session of a user but the given one, for a user who changed their password and goes on using the page.
+func (m *Manager) RevokeOthers(ctx context.Context, userID uint64, keep *Session) error {
+	if keep == nil {
+		return m.store.DeleteForUser(ctx, userID)
+	}
+	return m.store.DeleteForUserExcept(ctx, userID, key(keep.ID))
 }
 
 // CookieName is the name of the session cookie. With Secure it carries the "__Host-" prefix, which browsers only accept

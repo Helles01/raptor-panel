@@ -60,14 +60,18 @@ type ClientOptions struct {
 	Timeout time.Duration
 	// ConnectTimeout is the longest connecting may take.
 	ConnectTimeout time.Duration
+	// LongTimeout is the longest a call that is slow by nature may take: packing and unpacking archives. 15 minutes when zero.
+	LongTimeout time.Duration
 	// InsecureTLS turns off the check of the node's certificate. Only for development.
 	InsecureTLS bool
 }
 
 // Factory makes Clients that share connections. Create one per process.
 type Factory struct {
-	transport *http.Transport
-	timeout   time.Duration
+	transport   *http.Transport
+	longTransp  *http.Transport
+	timeout     time.Duration
+	longTimeout time.Duration
 }
 
 // NewFactory returns a Factory.
@@ -75,19 +79,25 @@ func NewFactory(o ClientOptions) (*Factory, error) {
 	if o.Timeout <= 0 || o.ConnectTimeout <= 0 {
 		return nil, errors.New("wings: the timeouts must be positive")
 	}
-	return &Factory{
-		timeout: o.Timeout,
-		transport: &http.Transport{
+	if o.LongTimeout <= 0 {
+		o.LongTimeout = 15 * time.Minute
+	}
+	transport := func(headerTimeout time.Duration) *http.Transport {
+		return &http.Transport{
 			// The node token travels in a header, so no proxy from the environment may get to see it.
 			Proxy:                 nil,
 			DialContext:           (&net.Dialer{Timeout: o.ConnectTimeout}).DialContext,
 			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: o.InsecureTLS}, //nolint:gosec // opt-in for development
 			TLSHandshakeTimeout:   o.ConnectTimeout,
-			ResponseHeaderTimeout: o.Timeout,
+			ResponseHeaderTimeout: headerTimeout,
 			MaxIdleConns:          64,
 			MaxIdleConnsPerHost:   4,
 			IdleConnTimeout:       90 * time.Second,
-		},
+		}
+	}
+	return &Factory{
+		timeout: o.Timeout, longTimeout: o.LongTimeout,
+		transport: transport(o.Timeout), longTransp: transport(o.LongTimeout),
 	}, nil
 }
 
@@ -95,6 +105,8 @@ func NewFactory(o ClientOptions) (*Factory, error) {
 type Client struct {
 	node Node
 	http *http.Client
+	// long is for the calls that may take as long as LongTimeout.
+	long *http.Client
 }
 
 // Client returns a Client for a node. The node is validated.
@@ -104,12 +116,8 @@ func (f *Factory) Client(n Node) (*Client, error) {
 	}
 	return &Client{
 		node: n,
-		http: &http.Client{
-			Transport: f.transport,
-			Timeout:   f.timeout,
-			// A redirect would send the node token to whatever address it names.
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
+		http: noRedirects(f.transport, f.timeout),
+		long: noRedirects(f.longTransp, f.longTimeout),
 	}, nil
 }
 
@@ -189,28 +197,67 @@ func (c *Client) Deauthorize(ctx context.Context, userUUID string, serverUUIDs .
 	return c.do(ctx, http.MethodPost, "/api/deauthorize-user", map[string]any{"user": userUUID, "servers": serverUUIDs}, nil)
 }
 
+func noRedirects(t http.RoundTripper, timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: t,
+		Timeout:   timeout,
+		// A redirect would send the node token to whatever address it names.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+// do makes a call with a JSON body, if there is one, and decodes a JSON reply into out, if there is one.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
-	var payload io.Reader
+	k := call{method: method, path: path, out: out}
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("encode request: %w", err)
 		}
-		payload = bytes.NewReader(b)
+		k.body, k.contentType = b, "application/json"
 	}
+	return c.run(ctx, k)
+}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.node.Address()+path, payload)
+// call describes one request to a node.
+type call struct {
+	method, path string
+	// body is sent as it is, with contentType.
+	body        []byte
+	contentType string
+	// out takes the JSON of the reply; raw keeps the reply as it is. With neither the reply is dropped.
+	out any
+	raw *[]byte
+	// limit is the largest reply taken, maxResponseBytes when zero; a larger one is ErrTooLarge for a raw reply.
+	limit int64
+	// long lets the call take as long as LongTimeout.
+	long bool
+}
+
+// ErrTooLarge is a reply that is larger than the caller allowed.
+var ErrTooLarge = errors.New("wings: the reply is larger than allowed")
+
+func (c *Client) run(ctx context.Context, k call) error {
+	var payload io.Reader
+	if k.body != nil {
+		payload = bytes.NewReader(k.body)
+	}
+	req, err := http.NewRequestWithContext(ctx, k.method, c.node.Address()+k.path, payload)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.node.Token)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Raptor Panel")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if k.body != nil && k.contentType != "" {
+		req.Header.Set("Content-Type", k.contentType)
 	}
 
-	res, err := c.http.Do(req)
+	client := c.http
+	if k.long {
+		client = c.long
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return &Error{
 			Status: http.StatusGatewayTimeout, Unreachable: true, cause: err,
@@ -219,17 +266,34 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	defer res.Body.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes+1))
-	if err != nil || len(raw) > maxResponseBytes {
+	limit := k.limit
+	if limit <= 0 {
+		limit = maxResponseBytes
+	}
+	if k.raw != nil && res.StatusCode >= 200 && res.StatusCode < 300 && res.ContentLength > limit {
+		return ErrTooLarge
+	}
+	// A refusal is read in full up to the usual limit, whatever the call allows for its good reply.
+	readLimit := limit
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		readLimit = maxResponseBytes
+	}
+	raw, err := io.ReadAll(io.LimitReader(res.Body, readLimit+1))
+	if err != nil || int64(len(raw)) > readLimit {
+		if err == nil && k.raw != nil && res.StatusCode >= 200 && res.StatusCode < 300 {
+			return ErrTooLarge
+		}
 		return &Error{Status: http.StatusBadGateway, NodeStatus: res.StatusCode, Message: "The machine running this server sent an unusable reply.", cause: err}
 	}
 
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		if out == nil {
-			return nil
-		}
-		if err := json.Unmarshal(raw, out); err != nil {
-			return &Error{Status: http.StatusBadGateway, NodeStatus: res.StatusCode, Message: "The machine running this server sent an unusable reply.", cause: err}
+		switch {
+		case k.raw != nil:
+			*k.raw = raw
+		case k.out != nil:
+			if err := json.Unmarshal(raw, k.out); err != nil {
+				return &Error{Status: http.StatusBadGateway, NodeStatus: res.StatusCode, Message: "The machine running this server sent an unusable reply.", cause: err}
+			}
 		}
 		return nil
 	}
@@ -286,4 +350,63 @@ func (c *Client) Delete(ctx context.Context, serverUUID string) error {
 		return err
 	}
 	return c.do(ctx, http.MethodDelete, "/api/servers/"+serverUUID, nil, nil)
+}
+
+// Reinstall tells the node to run the install script of a server again.
+func (c *Client) Reinstall(ctx context.Context, serverUUID string) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/api/servers/"+serverUUID+"/reinstall", nil, nil)
+}
+
+// CreateBackup tells the node to make a backup of a server. adapter is the disk it is stored on, ignore the files to leave out, one
+// pattern per line. The node answers at once and reports the end of the backup to the panel on its own.
+func (c *Client) CreateBackup(ctx context.Context, serverUUID, adapter, backupUUID, ignore string) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	if err := checkUUID("the backup", backupUUID); err != nil {
+		return err
+	}
+	if adapter != "wings" && adapter != "s3" {
+		return fmt.Errorf("wings: %q is not a backup disk", adapter)
+	}
+	return c.do(ctx, http.MethodPost, "/api/servers/"+serverUUID+"/backup", map[string]string{"adapter": adapter, "uuid": backupUUID, "ignore": ignore}, nil)
+}
+
+// RestoreBackup tells the node to unpack a backup over the files of a server, or over an emptied directory with truncate.
+// downloadURL is where the node fetches the archive from when it is not on the node itself.
+func (c *Client) RestoreBackup(ctx context.Context, serverUUID, backupUUID, adapter string, truncate bool, downloadURL string) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	if err := checkUUID("the backup", backupUUID); err != nil {
+		return err
+	}
+	if adapter != "wings" && adapter != "s3" {
+		return fmt.Errorf("wings: %q is not a backup disk", adapter)
+	}
+	return c.do(ctx, http.MethodPost, "/api/servers/"+serverUUID+"/backup/"+backupUUID+"/restore",
+		map[string]any{"adapter": adapter, "truncate_directory": truncate, "download_url": downloadURL}, nil)
+}
+
+// DeleteBackup tells the node to delete the archive of a backup. A node that does not know the backup answers 404 (*Error with
+// NodeStatus 404), which a caller that is deleting it anyway may take as done.
+func (c *Client) DeleteBackup(ctx context.Context, serverUUID, backupUUID string) error {
+	if err := checkUUID("the server", serverUUID); err != nil {
+		return err
+	}
+	if err := checkUUID("the backup", backupUUID); err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodDelete, "/api/servers/"+serverUUID+"/backup/"+backupUUID, nil, nil)
+}
+
+func jsonBody(v any) ([]byte, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	return b, nil
 }

@@ -46,6 +46,8 @@ type World struct {
 	Nodes map[string]authz.NodeCredentials
 	// TwoFactorLevel is the panel's requirement: 0 none, 1 administrators, 2 everybody.
 	TwoFactorLevel int
+	// Sessions is the session manager of the server; Serve makes one if none is set. Set it first to create sessions that the server knows.
+	Sessions *session.Manager
 }
 
 // NewWorld returns an empty world.
@@ -146,9 +148,13 @@ func (w *World) Serve(t *testing.T, register func(g api.Group)) *Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessions, err := session.NewManager(session.NewMemoryStore(), session.Options{IdleTimeout: time.Hour, MaxLifetime: 8 * time.Hour})
-	if err != nil {
-		t.Fatal(err)
+	sessions := w.Sessions
+	if sessions == nil {
+		var err error
+		if sessions, err = session.NewManager(session.NewMemoryStore(), session.Options{IdleTimeout: time.Hour, MaxLifetime: 8 * time.Hour}); err != nil {
+			t.Fatal(err)
+		}
+		w.Sessions = sessions
 	}
 	register(srv.Router.Sub("", middleware.LoadSession(sessions, false)))
 	h, err := srv.Handler()
@@ -274,4 +280,26 @@ func (c *Client) AsNode(node uint64, method, target, body string) Reply {
 		header = "Bearer " + NodeTokenID(node) + "." + NodeSecret
 	}
 	return c.send(header, method, target, body)
+}
+
+// AsSession sends a request with the session cookie of a user instead of a key. The session must belong to the manager of the world.
+func (c *Client) AsSession(cookie *http.Cookie, method, target, body string) Reply {
+	c.t.Helper()
+	var payload io.Reader
+	if body != "" {
+		payload = bytes.NewBufferString(body)
+	}
+	req := httptest.NewRequest(method, target, payload)
+	req.RemoteAddr = "127.0.0.1:5555"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	c.h.ServeHTTP(rec, req)
+
+	out := Reply{Status: rec.Code, Header: rec.Header(), Raw: rec.Body.Bytes()}
+	_ = json.Unmarshal(out.Raw, &out.Body)
+	return out
 }

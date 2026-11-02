@@ -492,3 +492,86 @@ func TestDelete(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+func TestReinstall(t *testing.T) {
+	f := newFakeWings(t, false)
+	c := newClient(t, f, ClientOptions{})
+
+	if err := c.Reinstall(context.Background(), serverUUID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last(t); got.Method != "POST" || got.Path != "/api/servers/"+serverUUID+"/reinstall" || got.Body != "" || got.Auth != "Bearer "+nodeToken {
+		t.Errorf("request = %+v", got)
+	}
+	before := f.count()
+	if err := c.Reinstall(context.Background(), "x/../y"); err == nil || f.count() != before {
+		t.Errorf("a server that is not a UUID was sent: %v", err)
+	}
+	f.reply(409, `{"error":"server is already installing"}`)
+	var we *Error
+	if err := c.Reinstall(context.Background(), serverUUID); !errors.As(err, &we) || we.Status != 409 {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestBackupCalls(t *testing.T) {
+	f := newFakeWings(t, false)
+	c := newClient(t, f, ClientOptions{})
+	ctx := context.Background()
+
+	if err := c.CreateBackup(ctx, serverUUID, "wings", backupUUID, "*.log\ncache/"); err != nil {
+		t.Fatal(err)
+	}
+	got := f.last(t)
+	if got.Method != "POST" || got.Path != "/api/servers/"+serverUUID+"/backup" ||
+		got.Body != `{"adapter":"wings","ignore":"*.log\ncache/","uuid":"`+backupUUID+`"}` || got.Auth != "Bearer "+nodeToken {
+		t.Errorf("create = %+v", got)
+	}
+
+	if err := c.RestoreBackup(ctx, serverUUID, backupUUID, "s3", true, "https://example.com/b.tar.gz"); err != nil {
+		t.Fatal(err)
+	}
+	got = f.last(t)
+	if got.Method != "POST" || got.Path != "/api/servers/"+serverUUID+"/backup/"+backupUUID+"/restore" ||
+		got.Body != `{"adapter":"s3","download_url":"https://example.com/b.tar.gz","truncate_directory":true}` {
+		t.Errorf("restore = %+v", got)
+	}
+
+	if err := c.DeleteBackup(ctx, serverUUID, backupUUID); err != nil {
+		t.Fatal(err)
+	}
+	if got = f.last(t); got.Method != "DELETE" || got.Path != "/api/servers/"+serverUUID+"/backup/"+backupUUID || got.Body != "" {
+		t.Errorf("delete = %+v", got)
+	}
+
+	// A node that does not know the backup says so, in a way the caller can tell.
+	f.reply(404, `{"error":"The requested resource was not found on the system."}`)
+	var we *Error
+	if err := c.DeleteBackup(ctx, serverUUID, backupUUID); !errors.As(err, &we) || we.NodeStatus != 404 {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestBackupCallsRejectBadInputBeforeAnyRequest(t *testing.T) {
+	f := newFakeWings(t, false)
+	c := newClient(t, f, ClientOptions{})
+	ctx := context.Background()
+
+	for name, err := range map[string]error{
+		"create, bad server":  c.CreateBackup(ctx, "x", "wings", backupUUID, ""),
+		"create, bad backup":  c.CreateBackup(ctx, serverUUID, "wings", "../x", ""),
+		"create, bad disk":    c.CreateBackup(ctx, serverUUID, "ftp", backupUUID, ""),
+		"restore, bad server": c.RestoreBackup(ctx, "x", backupUUID, "wings", false, ""),
+		"restore, bad backup": c.RestoreBackup(ctx, serverUUID, "x", "wings", false, ""),
+		"restore, bad disk":   c.RestoreBackup(ctx, serverUUID, backupUUID, "", false, ""),
+		"delete, bad server":  c.DeleteBackup(ctx, "x", backupUUID),
+		"delete, bad backup":  c.DeleteBackup(ctx, serverUUID, "x/../y"),
+	} {
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if f.count() != 0 {
+		t.Errorf("%d requests reached the node for invalid input", f.count())
+	}
+}

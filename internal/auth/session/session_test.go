@@ -389,3 +389,42 @@ func TestConfirmationLimitIsFive(t *testing.T) {
 		t.Errorf("MaxConfirmationFailures = %d, want 5", MaxConfirmationFailures)
 	}
 }
+
+func TestRevokeOthersKeepsTheGivenSession(t *testing.T) {
+	m, _, _ := newTestManager(t, true)
+	login := func(user uint64) *Session {
+		g, _ := m.Create(ctx, "", "")
+		s, err := m.Login(ctx, g, user)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	keep, other, third, someoneElse := login(1), login(1), login(1), login(2)
+
+	if err := m.RevokeOthers(ctx, 1, keep); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Load(ctx, keep.ID); err != nil {
+		t.Errorf("the session that stays was ended: %v", err)
+	}
+	for name, s := range map[string]*Session{"other": other, "third": third} {
+		if _, err := m.Load(ctx, s.ID); !errors.Is(err, ErrNotFound) {
+			t.Errorf("the %s session of the user still loads", name)
+		}
+	}
+	if _, err := m.Load(ctx, someoneElse.ID); err != nil {
+		t.Errorf("another user's session was ended: %v", err)
+	}
+
+	// Without a session to keep, as for a request that came with an API key, all of them end.
+	if err := m.RevokeOthers(ctx, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Load(ctx, keep.ID); !errors.Is(err, ErrNotFound) {
+		t.Error("a session of the user is left although none was to be kept")
+	}
+	if _, err := m.Load(ctx, someoneElse.ID); err != nil {
+		t.Errorf("another user's session was ended: %v", err)
+	}
+}

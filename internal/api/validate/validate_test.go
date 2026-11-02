@@ -8,6 +8,7 @@ import (
 
 	"github.com/Helles01/raptor-panel/internal/api/apierr"
 	"github.com/Helles01/raptor-panel/internal/api/field"
+	"github.com/Helles01/raptor-panel/internal/fielderr"
 )
 
 func fieldsOf(t *testing.T, err error) []apierr.FieldError {
@@ -162,5 +163,25 @@ func TestDecodeJSON(t *testing.T) {
 				t.Errorf("error = %v, want status %d containing %q", err, tt.wantStatus, tt.wantDetail)
 			}
 		})
+	}
+}
+
+func TestCustomAndFromField(t *testing.T) {
+	v := New()
+	v.Custom("permissions", "array", "The permissions must be an array.")
+	v.Custom("permissions", "required", "second failure of the same field")
+	err := v.Err()
+	var api *apierr.Error
+	if !errors.As(err, &api) || len(api.Fields) != 1 || api.Fields[0].Detail != "The permissions must be an array." || api.Fields[0].Rule != "array" {
+		t.Errorf("error = %#v", err)
+	}
+
+	got := FromField(fielderr.New("first_name", "must be at most %d characters", 191))
+	if !errors.As(got, &api) || api.Status != 422 || api.Fields[0].Field != "first_name" || api.Fields[0].Detail != "The first name must be at most 191 characters." {
+		t.Errorf("FromField = %#v", got)
+	}
+	plain := errors.New("not a field")
+	if FromField(plain) != plain {
+		t.Error("an error that is not a field refusal must come back unchanged")
 	}
 }

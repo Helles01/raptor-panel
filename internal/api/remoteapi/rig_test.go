@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/apitest"
 	"github.com/Helles01/raptor-panel/internal/api/middleware"
 	"github.com/Helles01/raptor-panel/internal/auth"
+	"github.com/Helles01/raptor-panel/internal/backups"
 	"github.com/Helles01/raptor-panel/internal/mail"
 	"github.com/Helles01/raptor-panel/internal/remote"
 	"github.com/Helles01/raptor-panel/internal/servers"
@@ -105,16 +107,22 @@ type store struct {
 	oldNodeCalls []string
 
 	// Answers to inject.
-	installRace  bool // Installed answers false
-	completeRace bool
-	failList     error
-	failActivity error
-	failReset    error
-	failComplete error
-	failMail     error
-	failOldNode  error
-	failEvents   error
-	failFind     error
+	installRace        bool // Installed answers false
+	completeRace       bool
+	failList           error
+	failActivity       error
+	failReset          error
+	failComplete       error
+	failMail           error
+	failOldNode        error
+	failEvents         error
+	failFind           error
+	backupList         []NodeBackup
+	backupDone         []completedBackup
+	restoring          map[uint64]bool
+	restoreEnds        []uint64
+	failBackups        error
+	completeBackupRace bool
 	// extraReset are candidates a careless store would add to what it found.
 	extraReset []ResetCandidate
 }
@@ -328,13 +336,25 @@ func (s *store) DeleteServer(_ context.Context, node uint64, uuid string) error 
 	return s.failOldNode
 }
 
+type completedBackup struct {
+	ID     uint64
+	Result backups.Result
+	At     time.Time
+}
+
 func userUUID(id uint64) string {
 	return strings.Repeat(string(rune('0'+id)), 8) + "-0000-4000-8000-000000000000"
 }
 
 func newStore(t *testing.T) *store {
 	t.Helper()
-	s := &store{users: map[string]SFTPUser{}, prints: map[uint64][]string{}}
+	s := &store{users: map[string]SFTPUser{}, prints: map[uint64][]string{}, restoring: map[uint64]bool{103: true}}
+	s.backupList = []NodeBackup{
+		{ID: 1, ServerID: 100, NodeID: node1, UUID: backupUUIDN(1), Name: "Running", Disk: "wings"},
+		{ID: 2, ServerID: 100, NodeID: node1, UUID: backupUUIDN(2), Name: "Done", Disk: "wings", Completed: true, Successful: true},
+		{ID: 3, ServerID: 105, NodeID: node2, UUID: backupUUIDN(3), Name: "Elsewhere", Disk: "wings"},
+		{ID: 4, ServerID: 103, NodeID: node1, UUID: backupUUIDN(4), Name: "Nightly", Disk: "wings", Completed: true, Successful: true},
+	}
 	for id, name := range map[uint64]string{ada: "ada", root: "root", bob: "bob", cleo: "cleo", eve: "eve"} {
 		s.users[name] = SFTPUser{ID: id, UUID: userUUID(id), Admin: id == root, PasswordHash: adaHash}
 	}
@@ -412,7 +432,7 @@ func newRig(t *testing.T, opts ...func(*options)) *rig {
 	}
 	logs := &bytes.Buffer{}
 	h, err := New(Deps{
-		Servers: s, Users: s, Activity: s, Events: s, Outbox: s, OldNodes: s,
+		Servers: s, Users: s, Activity: s, Events: s, Outbox: s, OldNodes: s, Backups: s,
 		Failures: middleware.NewTracker(), Site: site, Notify: o.notify,
 		Logger: slog.New(slog.NewTextHandler(logs, nil)), Now: func() time.Time { return apitest.Now },
 	})
@@ -443,3 +463,34 @@ func (r *rig) get(node uint64, target string) apitest.Reply {
 }
 
 var errBoom = errors.New("the database is down: password=hunter2")
+
+// The backups of the world: the uuid ends in the number. 1 is running on node 1, 2 finished on node 1, 3 is on node 2.
+func backupUUIDN(n int) string { return fmt.Sprintf("0000000%d-aaaa-4bbb-8ccc-dddddddddddd", n) }
+
+func (s *store) OnNode(ctx context.Context, node uint64, uuid string) (NodeBackup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failBackups != nil {
+		return NodeBackup{}, s.failBackups
+	}
+	for _, b := range s.backupList {
+		if b.UUID == uuid && (s.leak || b.NodeID == node) {
+			return b, nil
+		}
+	}
+	return NodeBackup{}, ErrNotFound
+}
+
+func (s *store) Complete(_ context.Context, id uint64, r backups.Result, at time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.backupDone = append(s.backupDone, completedBackup{id, r, at})
+	return !s.completeBackupRace, s.failBackups
+}
+
+func (s *store) FinishRestore(_ context.Context, serverID uint64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.restoreEnds = append(s.restoreEnds, serverID)
+	return s.restoring[serverID], s.failBackups
+}

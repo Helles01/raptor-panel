@@ -49,6 +49,17 @@ func (s *MemoryStore) DeleteForUser(_ context.Context, userID uint64) error {
 	return nil
 }
 
+func (s *MemoryStore) DeleteForUserExcept(_ context.Context, userID uint64, keep string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, r := range s.records {
+		if r.UserID == userID && k != keep {
+			delete(s.records, k)
+		}
+	}
+	return nil
+}
+
 // Len returns how many records the store holds.
 func (s *MemoryStore) Len() int {
 	s.mu.Lock()

@@ -25,6 +25,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/apierr"
 	"github.com/Helles01/raptor-panel/internal/api/authz"
 	"github.com/Helles01/raptor-panel/internal/api/middleware"
+	"github.com/Helles01/raptor-panel/internal/backups"
 	"github.com/Helles01/raptor-panel/internal/mail"
 	"github.com/Helles01/raptor-panel/internal/remote"
 	"github.com/Helles01/raptor-panel/internal/servers"
@@ -168,9 +169,10 @@ type ActivitySink interface {
 // Event is an entry of the activity log about a sign-in or a server, written by the panel.
 type Event struct {
 	Name string
-	// UserSubject and ServerSubject are the records the entry is about, 0 for none; Actor is the user who did it, 0 for none.
+	// UserSubject, ServerSubject and BackupSubject are the records the entry is about, 0 for none; Actor is the user who did it, 0 for none.
 	UserSubject   uint64
 	ServerSubject uint64
+	BackupSubject uint64
 	Actor         uint64
 	IP            string
 	// Properties is the JSON object from activity.Properties.
@@ -200,6 +202,7 @@ type Deps struct {
 	Events   EventLog
 	Outbox   Outbox
 	OldNodes OldNodes
+	Backups  Backups
 
 	// Failures counts the failed SFTP sign-ins.
 	Failures *middleware.Tracker
@@ -219,7 +222,7 @@ type Handlers struct {
 // New checks the dependencies and returns the endpoints.
 func New(d Deps) (*Handlers, error) {
 	switch {
-	case d.Servers == nil || d.Users == nil || d.Activity == nil || d.Events == nil || d.Outbox == nil || d.OldNodes == nil:
+	case d.Servers == nil || d.Users == nil || d.Activity == nil || d.Events == nil || d.Outbox == nil || d.OldNodes == nil || d.Backups == nil:
 		return nil, errors.New("remoteapi: every store is required")
 	case d.Failures == nil || d.Logger == nil:
 		return nil, errors.New("remoteapi: the failure tracker and a logger are required")
@@ -244,6 +247,11 @@ func (h *Handlers) Register(g api.Group) {
 	s.POST("/install", h.InstallReport, api.Daemon())
 	s.POST("/transfer/failure", h.TransferFailure, api.Daemon())
 	s.POST("/transfer/success", h.TransferSuccess, api.Daemon())
+
+	b := r.Sub("/backups/:backup")
+	b.GET("", h.BackupUpload, api.Daemon())
+	b.POST("", h.BackupReport, api.Daemon())
+	b.POST("/restore", h.BackupRestoreReport, api.Daemon())
 }
 
 // scope returns the calling node. A route wired without the authorizer has none; it is refused rather than served.
@@ -311,3 +319,27 @@ func clientHost(reported, fallback string) string {
 }
 
 func noContent(c echo.Context) error { return c.NoContent(http.StatusNoContent) }
+
+// NodeBackup is a backup of a server of the calling node.
+type NodeBackup struct {
+	ID       uint64
+	ServerID uint64
+	NodeID   uint64
+	UUID     string
+	Name     string
+	Disk     string
+	// Completed says the backup has a completion time, whatever came of it.
+	Completed  bool
+	Successful bool
+	Locked     bool
+}
+
+// Backups is the part of the backup storage the node API needs. Every lookup is bound to the calling node.
+type Backups interface {
+	// OnNode finds a backup of a server that is on the node.
+	OnNode(ctx context.Context, nodeID uint64, uuid string) (NodeBackup, error)
+	// Complete stores the end of a backup, only if it has not ended yet, and says whether it did.
+	Complete(ctx context.Context, backupID uint64, r backups.Result, at time.Time) (bool, error)
+	// FinishRestore puts a server that was restoring a backup back to its normal state, and says whether it was restoring.
+	FinishRestore(ctx context.Context, serverID uint64) (bool, error)
+}

@@ -152,9 +152,9 @@ func (h *Handlers) target(c echo.Context, p authz.Principal) (Target, error) {
 	return t, nil
 }
 
-// daemonError turns a failed call to a node into the API's answer: the status and the text the node's client worked out, which are
+// DaemonError turns a failed call to a node into the API's answer: the status and the text the node's client worked out, which are
 // safe to show, with the cause kept for the log. Anything else is an unexpected failure.
-func daemonError(err error) error {
+func DaemonError(err error) error {
 	var we *wings.Error
 	if errors.As(err, &we) {
 		return apierr.Daemon(we.Status, we.Message, err)
