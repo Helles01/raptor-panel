@@ -12,10 +12,15 @@ import (
 type Querier interface {
 	APIKeyByIdentifier(ctx context.Context, identifier sql.NullString) (APIKeyByIdentifierRow, error)
 	APIKeyForRevoke(ctx context.Context, identifier sql.NullString) (APIKeyForRevokeRow, error)
+	AllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]AllocationsOfServersRow, error)
+	BackupOfNode(ctx context.Context, arg BackupOfNodeParams) (BackupOfNodeRow, error)
 	ClearTwoFactor(ctx context.Context, id uint32) (int64, error)
+	// Only a backup that has not ended can be ended.
+	CompleteBackup(ctx context.Context, arg CompleteBackupParams) (int64, error)
 	CountDatabasesOnHost(ctx context.Context, databaseHostID uint32) (int64, error)
 	CountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
 	CountOwnedServers(ctx context.Context, ownerID uint32) (int64, error)
+	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
 	DeleteAPIKey(ctx context.Context, id uint32) error
 	DeleteDatabaseHost(ctx context.Context, id uint32) (int64, error)
@@ -36,6 +41,9 @@ type Querier interface {
 	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) error
 	FailJob(ctx context.Context, arg FailJobParams) error
+	FingerprintsOfUser(ctx context.Context, userID uint32) ([]string, error)
+	FinishRestoreOfServer(ctx context.Context, arg FinishRestoreOfServerParams) (int64, error)
+	FinishTransfer(ctx context.Context, arg FinishTransferParams) error
 	GetSecret(ctx context.Context, arg GetSecretParams) (string, error)
 	GetSession(ctx context.Context, id string) (Session, error)
 	// The token column is not null and means the old encrypted secret; a key made here has none, its hash is in raptor_secrets.
@@ -51,6 +59,9 @@ type Querier interface {
 	InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error
 	// What the administrator's commands read and write: users, API keys, locations, nodes, nests, eggs, settings and database hosts.
 	InsertUser(ctx context.Context, arg InsertUserParams) (int64, error)
+	// The script that installs a server: the egg's own, or the one it copies from another egg.
+	InstallScriptOfServer(ctx context.Context, id uint32) (InstallScriptOfServerRow, error)
+	LastSuccessfulBackup(ctx context.Context, serverID uint32) (LastSuccessfulBackupRow, error)
 	LatestPasswordReset(ctx context.Context, email string) (LatestPasswordResetRow, error)
 	LeaseJob(ctx context.Context, arg LeaseJobParams) error
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
@@ -61,20 +72,39 @@ type Querier interface {
 	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	LocationExists(ctx context.Context, id uint32) (int64, error)
 	LockDatabaseHost(ctx context.Context, id uint32) (LockDatabaseHostRow, error)
+	LockOpenTransfer(ctx context.Context, serverID uint32) (LockOpenTransferRow, error)
 	LockUser(ctx context.Context, id uint32) (uint32, error)
+	MountsOfServers(ctx context.Context, ids []uint32) ([]MountsOfServersRow, error)
+	MoveServer(ctx context.Context, arg MoveServerParams) error
 	NestExists(ctx context.Context, id uint32) (int64, error)
 	NodeByTokenID(ctx context.Context, daemonTokenID string) (NodeByTokenIDRow, error)
 	NodeForDaemon(ctx context.Context, id uint32) (NodeForDaemonRow, error)
 	NodeOrigins(ctx context.Context) ([]NodeOriginsRow, error)
 	NodesOfUser(ctx context.Context, arg NodesOfUserParams) ([]uint32, error)
+	// The transfer that is still running, if any.
+	OpenTransferOfServer(ctx context.Context, serverID uint32) (OpenTransferOfServerRow, error)
 	PutSession(ctx context.Context, arg PutSessionParams) error
 	RecoveryTokensForUser(ctx context.Context, userID uint32) ([]RecoveryTokensForUserRow, error)
+	ReleaseAllocations(ctx context.Context, ids []uint32) error
+	ResetServerStatus(ctx context.Context, arg ResetServerStatusParams) (int64, error)
+	ResettableServersOfNode(ctx context.Context, nodeID uint32) ([]ResettableServersOfNodeRow, error)
 	RetryJob(ctx context.Context, arg RetryJobParams) error
+	SFTPServer(ctx context.Context, arg SFTPServerParams) (SFTPServerRow, error)
 	ServerByShortUUID(ctx context.Context, uuidshort string) (ServerByShortUUIDRow, error)
 	ServerByUUID(ctx context.Context, uuid string) (ServerByUUIDRow, error)
+	ServerForNodeByUUID(ctx context.Context, uuid string) (ServerForNodeByUUIDRow, error)
+	ServerIDsOfNode(ctx context.Context, arg ServerIDsOfNodeParams) ([]ServerIDsOfNodeRow, error)
+	// The servers a node holds, a page at a time, with what their configuration needs from the same row and from the node, the location and the egg
+	// (and the egg it takes its process configuration from, if any).
+	ServersOfNode(ctx context.Context, arg ServersOfNodeParams) ([]ServersOfNodeRow, error)
+	// The result of an installation is stored only if the server still has the status the report was made against.
+	SetInstallStatus(ctx context.Context, arg SetInstallStatusParams) (int64, error)
+	SetInstallStatusAndTime(ctx context.Context, arg SetInstallStatusAndTimeParams) (int64, error)
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) (int64, error)
 	SettingValue(ctx context.Context, key string) (string, error)
 	SubuserPermissions(ctx context.Context, arg SubuserPermissionsParams) (sql.NullString, error)
+	// What the node's API (Wings) and the control routes read and write about servers.
+	TargetOfServer(ctx context.Context, id uint32) (TargetOfServerRow, error)
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
 	UpdateDatabaseHost(ctx context.Context, arg UpdateDatabaseHostParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
@@ -86,7 +116,10 @@ type Querier interface {
 	UserByID(ctx context.Context, id uint32) (UserByIDRow, error)
 	// The columns use utf8mb4_unicode_ci, so a name and an address are compared without regard to case.
 	UserByUsername(ctx context.Context, username string) (UserByUsernameRow, error)
+	UserForSFTP(ctx context.Context, username string) (UserForSFTPRow, error)
+	UserIDsByUUID(ctx context.Context, uuids []string) ([]UserIDsByUUIDRow, error)
 	UserUUID(ctx context.Context, id uint32) (string, error)
+	VariablesOfServers(ctx context.Context, ids []uint32) ([]VariablesOfServersRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

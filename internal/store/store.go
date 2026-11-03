@@ -94,14 +94,22 @@ func timeOf(t sql.NullTime) time.Time {
 	return t.Time.UTC()
 }
 
-// entry is a line of the activity log about a user.
+// subject is something an activity entry is about: the model it is (as the reference names it) and its id.
+type subject struct {
+	Type string
+	ID   uint64
+}
+
+// entry is a line of the activity log. Its subject is a user unless SubjectType says otherwise; Subjects are more, an id of 0 meaning none.
 type entry struct {
-	Event      string
-	Subject    uint64
-	Actor      uint64
-	APIKeyID   uint64
-	IP         string
-	Properties string
+	Event       string
+	Subject     uint64
+	SubjectType string
+	Subjects    []subject
+	Actor       uint64
+	APIKeyID    uint64
+	IP          string
+	Properties  string
 }
 
 // logActivity writes an entry and the subject it is about, in one transaction.
@@ -119,11 +127,21 @@ func (d *DB) logActivity(ctx context.Context, e entry) error {
 		if err != nil {
 			return fmt.Errorf("write the activity log: %w", err)
 		}
-		if e.Subject == 0 {
-			return nil
+		subjects := e.Subjects
+		if e.Subject != 0 {
+			kind := e.SubjectType
+			if kind == "" {
+				kind = userModel
+			}
+			subjects = append([]subject{{kind, e.Subject}}, subjects...)
 		}
-		if err := q.InsertActivitySubject(ctx, dbq.InsertActivitySubjectParams{ActivityLogID: uint64(id), SubjectType: userModel, SubjectID: e.Subject}); err != nil {
-			return fmt.Errorf("write the subject of the activity log: %w", err)
+		for _, sub := range subjects {
+			if sub.ID == 0 {
+				continue
+			}
+			if err := q.InsertActivitySubject(ctx, dbq.InsertActivitySubjectParams{ActivityLogID: uint64(id), SubjectType: sub.Type, SubjectID: sub.ID}); err != nil {
+				return fmt.Errorf("write the subject of the activity log: %w", err)
+			}
 		}
 		return nil
 	})

@@ -49,3 +49,26 @@ the database, `RAPTOR_SECRET_KEY`, `RAPTOR_APP_URL`); help and a mistyped name n
 - `dbhost create` really signs in: the end-to-end test points it at the test database itself; a wrong password gives MariaDB error 1045 and saves nothing. This is the first run of `MySQLDialer` against a real server.
 
 Tests: `internal/store/admin_integration_test.go` (6 tests), `cmd/raptor/cmd_admin_integration_test.go` (the whole first installation in one test, 7 steps) and `cmd/raptor/cmd_admin_test.go`.
+
+## Third part (2026-11-03): the control routes and the node's API
+`store.ControlTargets`, `ControlActivity`, `RemoteServers`, `RemoteUsers`, `RemoteActivity`, `RemoteEvents`, `RemoteBackups`, `RemoteOutbox` (8 more interfaces, 34 of 66), over
+`internal/db/queries/node.sql`. With them a Wings can be given its servers, report an installation, a backup and its activity, and the console can find the node of a server.
+`remoteapi.OldNodes` is not SQL (it is a call to a node) and is made when the program is put together.
+
+- **The server configuration is read in four queries for any number of servers** (the servers with their node's location, their egg and the egg they take their process configuration from; the allocations; the
+  variables with the server's own values; the mounts). An egg with `config_from` uses the parent's files, startup and stop; with `copy_script_from` it installs with the other egg's script.
+- **What a node may reach** is decided in the store and again by the handler (the tests of both use a store that leaks): a server on the node, or one whose open transfer starts or ends there; for a third node the server is not there.
+- **One report, one effect** (each is a single conditional statement, tested with 10-20 requests at once): the result of an installation (only against the status it was made for), the end of a backup
+  (only while `completed_at IS NULL`), the end of a restore (only while `restoring_backup`), the end of a transfer (in one transaction with the locked transfer row, the move of the server and the release of allocations).
+- **A restart of a node (`Reset`)** changes only servers that still have the status the change was made against and belong to the node, and writes the `server:backup.restore-failed` entry, with the server and the
+  backup as subjects, only for a server that changed. The backup that "was being restored" is the newest successful one that is not deleted (the reference does not record which one it was).
+- **The node's token** is opened from `raptor_secrets` for every call; a node without one gives an error that says so (not "not found"), because a panel that cannot talk to a node has to be told.
+- Soft-deleted backups and SSH keys (`deleted_at`) are never found.
+
+Tests: `internal/store/node_integration_test.go` (13 tests). Mutants killed: every statement guard above, the node scope of the backup, the SFTP server and the reach/own checks, the deleted-key filter, the order of the "last backup",
+the inheritance of the egg and of the script, the move and the release of a transfer, the empty (not nil) list of a subuser whose permissions are damaged.
+
+## Still to do in the SQL layer (32 of 66)
+`clientapi` (6 methods), `accountapi` (13), `settingsapi`, the Application API (appusers, applocations, appnodes, appallocs, appnests, appservers, appserverdbs: about 45 methods), `allocapi`, `subuserapi`, `scheduleapi`/`schedules`,
+`backupapi`, `databaseapi`, `maintenance`, `secretmigration` (done earlier). For the first test the next ones are `clientapi` (the server list and details in the browser), `accountapi` (two-factor setup) and the Application API
+for creating a server.
