@@ -98,3 +98,25 @@ of the key limit, the type of key in the three key queries, the soft-deleted SSH
 ## Still to do in the SQL layer (25 of 66)
 The Application API (appusers, applocations, appnodes, appallocs, appnests, appservers, appserverdbs: about 45 methods, needed to create the test server), `allocapi`, `subuserapi`, `scheduleapi` and `schedules`,
 `backupapi`, `databaseapi`, `maintenance`, and the small `ActivityLog` of each of those packages.
+
+## Fifth part (2026-11-03): the Application API, first half
+`store.AppUsers`, `AppUsersOutbox`, `AppUsersActivity`, `AppLocations`, `AppAllocations`, `AppNests` (6 more interfaces, 47 of 66), over `app.sql` and the read layer
+`internal/store/appread.go` + `appserver.go`: one fixed SELECT for each kind of record, used for one record and for a list alike, with the relations of `?include=` filled by the store and the records attached carrying
+no relations of their own. A server of the API is read with the same configuration the node is told (`build`), so what `?include=servers` shows on a user, a location, a nest or an egg is what the node gets.
+
+- **`users.external_id` is not unique in the schema** (an index, no unique key), and a test found the reference's rule missing from a plain INSERT. The store keeps the rule: the rows with the value are read `FOR UPDATE`
+  in the transaction of the write (which locks the place in the index too); a loser of a deadlock is run again and then gets the honest answer, `*appkit.TakenError{external_id}`. Of 12 requests at once with the same value, one wins.
+- **A user's update and its effects are one transaction**: the fields; the password (only when a hash is given); the reset links of the old address (a change of address or of password) and of the new one (a new password); the
+  sessions of the user; the orders to the nodes where they have servers (outbox); the application keys and their sealed secrets when administrator rights are taken away. A refused update (a taken address) changes nothing and ends no session.
+- **Setup token and user are one transaction** on creation; a taken username, address or external id is named by its field and nothing is stored.
+- **Allocations** are added a few hundred rows to a statement with `INSERT IGNORE` (an address and port the node has are left as they are; 1,201 rows in a test), listed per node with the owner filter (`filter[server_id]=` is "free"),
+  and deleted with the row locked while the check looks at who holds it. An extra allocation of a server has no foreign key to hold it back, only the check (a test found the first assertion of mine would have been satisfied by the
+  foreign key of the primary allocation alone).
+- **Eggs** keep the order of their images, and `?include=config|script` shows what an egg borrows from the egg it takes its configuration or script from.
+
+Tests: `appmisc_integration_test.go` (10). Mutants killed: the three effects of a user update, `INSERT IGNORE`, the node scope of allocations, the nest scope of an egg, the config include, both delete checks (with their own error
+returned), the `config_from` join, the email-only effect.
+
+## Still to do in the SQL layer (19 of 66)
+The nodes of the Application API (8 methods; the node record itself is read already), the servers (15: create with the choice of allocations, the build, the startup, the details with an owner change, suspension, delete),
+the server databases (6), `allocapi`, `subuserapi`, `scheduleapi` and `schedules`, `backupapi`, `databaseapi`, `maintenance` and the small `ActivityLog` of each of those packages.

@@ -28,15 +28,20 @@ type Querier interface {
 	CountAccountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
 	CountDatabasesOnHost(ctx context.Context, databaseHostID uint32) (int64, error)
 	CountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
+	CountNodesOfLocation(ctx context.Context, locationID uint32) (int64, error)
 	CountOwnedServers(ctx context.Context, ownerID uint32) (int64, error)
 	CountSSHKeysWithFingerprint(ctx context.Context, arg CountSSHKeysWithFingerprintParams) (int64, error)
 	CountServerVariableRows(ctx context.Context, arg CountServerVariableRowsParams) (int64, error)
 	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
 	DeleteAPIKey(ctx context.Context, id uint32) error
+	DeleteAllocation(ctx context.Context, id uint32) error
+	DeleteApplicationKeySecretsOfUser(ctx context.Context, userID uint32) error
+	DeleteApplicationKeysOfUser(ctx context.Context, userID uint32) error
 	DeleteDatabaseHost(ctx context.Context, id uint32) (int64, error)
 	DeleteJob(ctx context.Context, id uint64) error
 	DeleteKeySecretsOfUser(ctx context.Context, userID uint32) error
+	DeleteLocation(ctx context.Context, id uint32) error
 	DeletePasswordResets(ctx context.Context, email string) (int64, error)
 	// One use: only the request that deletes the row may use the token.
 	DeleteRecoveryToken(ctx context.Context, id uint64) (int64, error)
@@ -53,6 +58,9 @@ type Querier interface {
 	EnableTwoFactor(ctx context.Context, arg EnableTwoFactorParams) (int64, error)
 	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) error
+	// users.external_id has an index but no unique key, so the rule that it is unique is kept here: the rows are read FOR UPDATE, which locks the
+	// place in the index too and makes a concurrent request with the same value wait for this one.
+	ExternalIDHolders(ctx context.Context, arg ExternalIDHoldersParams) ([]uint32, error)
 	FailJob(ctx context.Context, arg FailJobParams) error
 	FingerprintsOfUser(ctx context.Context, userID uint32) ([]string, error)
 	FinishRestoreOfServer(ctx context.Context, arg FinishRestoreOfServerParams) (int64, error)
@@ -88,7 +96,9 @@ type Querier interface {
 	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	LocationExists(ctx context.Context, id uint32) (int64, error)
 	LockAccountKey(ctx context.Context, arg LockAccountKeyParams) (LockAccountKeyRow, error)
+	LockAllocation(ctx context.Context, arg LockAllocationParams) (LockAllocationRow, error)
 	LockDatabaseHost(ctx context.Context, id uint32) (LockDatabaseHostRow, error)
+	LockLocation(ctx context.Context, id uint32) (uint32, error)
 	LockOpenTransfer(ctx context.Context, serverID uint32) (LockOpenTransferRow, error)
 	LockSSHKey(ctx context.Context, arg LockSSHKeyParams) (LockSSHKeyRow, error)
 	// What a server's owner changes about it: its startup variables, its image and its name.
@@ -98,6 +108,7 @@ type Querier interface {
 	MoveServer(ctx context.Context, arg MoveServerParams) error
 	NestExists(ctx context.Context, id uint32) (int64, error)
 	NodeByTokenID(ctx context.Context, daemonTokenID string) (NodeByTokenIDRow, error)
+	NodeExists(ctx context.Context, id uint32) (int64, error)
 	NodeForDaemon(ctx context.Context, id uint32) (NodeForDaemonRow, error)
 	NodeOrigins(ctx context.Context) ([]NodeOriginsRow, error)
 	NodesOfUser(ctx context.Context, arg NodesOfUserParams) ([]uint32, error)
@@ -135,7 +146,10 @@ type Querier interface {
 	TargetOfServer(ctx context.Context, id uint32) (TargetOfServerRow, error)
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
 	UpdateDatabaseHost(ctx context.Context, arg UpdateDatabaseHostParams) error
+	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (int64, error)
 	UpdateServerVariable(ctx context.Context, arg UpdateServerVariableParams) (int64, error)
+	// The Application API's writes of users, locations and allocations.
+	UpdateUserFields(ctx context.Context, arg UpdateUserFieldsParams) (int64, error)
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
 	UpsertSetting(ctx context.Context, arg UpsertSettingParams) error
 	// A code of a step that is not later than the last one used is refused: the update changes a row only when it is.

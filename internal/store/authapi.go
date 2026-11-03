@@ -183,29 +183,32 @@ func (s authapiResets) Consume(ctx context.Context, email string) (bool, error) 
 // DeauthorizeUser queues, for every node where the user owns or is allowed on a server, the order to take their access away. The orders are
 // stored in one transaction, so a crash leaves all of them or none.
 func (s authapiNodes) DeauthorizeUser(ctx context.Context, userID uint64) error {
-	return s.inTx(ctx, func(q *dbq.Queries) error {
-		uuid, err := q.UserUUID(ctx, uint32(userID))
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			return nil // no user, nothing to take away
-		case err != nil:
-			return fmt.Errorf("find user %d: %w", userID, err)
-		}
-		nodes, err := q.NodesOfUser(ctx, dbq.NodesOfUserParams{OwnerID: uint32(userID), UserID: uint32(userID)})
+	return s.inTx(ctx, func(q *dbq.Queries) error { return s.deauthorizeIn(ctx, q, userID) })
+}
+
+// deauthorizeIn queues the orders inside the transaction of the caller, so that an order and the change that makes it necessary are stored together.
+func (d *DB) deauthorizeIn(ctx context.Context, q *dbq.Queries, userID uint64) error {
+	uuid, err := q.UserUUID(ctx, uint32(userID))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil // no user, nothing to take away
+	case err != nil:
+		return fmt.Errorf("find user %d: %w", userID, err)
+	}
+	nodes, err := q.NodesOfUser(ctx, dbq.NodesOfUserParams{OwnerID: uint32(userID), UserID: uint32(userID)})
+	if err != nil {
+		return fmt.Errorf("find the nodes of user %d: %w", userID, err)
+	}
+	for _, node := range nodes {
+		job, err := outbox.DeauthorizeJob(outbox.Deauthorization{NodeID: uint64(node), UserUUID: uuid})
 		if err != nil {
-			return fmt.Errorf("find the nodes of user %d: %w", userID, err)
+			return err
 		}
-		for _, node := range nodes {
-			job, err := outbox.DeauthorizeJob(outbox.Deauthorization{NodeID: uint64(node), UserUUID: uuid})
-			if err != nil {
-				return err
-			}
-			if err := q.EnqueueJob(ctx, dbq.EnqueueJobParams{Kind: job.Kind, Payload: string(job.Payload), RunAt: s.now().UTC()}); err != nil {
-				return fmt.Errorf("queue the order for node %d: %w", node, err)
-			}
+		if err := q.EnqueueJob(ctx, dbq.EnqueueJobParams{Kind: job.Kind, Payload: string(job.Payload), RunAt: d.now().UTC()}); err != nil {
+			return fmt.Errorf("queue the order for node %d: %w", node, err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (s authapiActivity) Log(ctx context.Context, e authapi.LogEntry) error {
