@@ -44,3 +44,7 @@ they are one table each and can share one implementation behind small adapters.
 3. The rest in the order of `docs/plan.md` chapter 5.
 4. `app.Build` (every handler from its stores) and `raptor serve`; then the `inventory` test can also run against real handlers.
 5. Integration tests against a real MariaDB: the conditional updates (two requests at once), the transactions with locks, the host statements (14c).
+
+## Done so far (2026-11-03)
+22 of the 66 interfaces are implemented in `internal/store` and tested on a real MariaDB: the authorizer (6), sessions (1), sign-in (6), pages (3), outbox (3) and the
+node/user lookups they need. See `modules/20a-sql-first-stores.md` for what is left.

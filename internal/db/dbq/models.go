@@ -288,6 +288,19 @@ type PasswordReset struct {
 	CreatedAt time.Time
 }
 
+type RaptorOutbox struct {
+	ID         uint64
+	Kind       string
+	Payload    string
+	State      string
+	Attempts   uint32
+	RunAt      time.Time
+	LeaseUntil sql.NullTime
+	Failure    sql.NullString
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type RaptorSecret struct {
 	ID         uint64
 	TableName  string

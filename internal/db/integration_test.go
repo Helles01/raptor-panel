@@ -46,7 +46,7 @@ func TestMigrate(t *testing.T) {
 	sqlDB := openTestDB(t)
 
 	// Start clean: only Raptor's own tables are ever dropped here.
-	for _, table := range []string{"raptor_secrets", "raptor_migrations"} {
+	for _, table := range []string{"raptor_secrets", "raptor_outbox", "raptor_migrations"} {
 		if _, err := sqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatalf("drop %s: %v", table, err)
 		}

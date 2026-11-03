@@ -6,12 +6,53 @@ package dbq
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
+	APIKeyByIdentifier(ctx context.Context, identifier sql.NullString) (APIKeyByIdentifierRow, error)
+	DeleteJob(ctx context.Context, id uint64) error
+	DeletePasswordResets(ctx context.Context, email string) (int64, error)
+	// One use: only the request that deletes the row may use the token.
+	DeleteRecoveryToken(ctx context.Context, id uint64) (int64, error)
+	DeleteSession(ctx context.Context, id string) error
+	DeleteSessionsForUser(ctx context.Context, userID sql.NullInt32) error
+	DeleteSessionsForUserExcept(ctx context.Context, arg DeleteSessionsForUserExceptParams) error
+	// Several processes may claim at once: a row that another transaction has locked is skipped, not waited for.
+	DueJobs(ctx context.Context, arg DueJobsParams) ([]DueJobsRow, error)
+	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
+	EnqueueJob(ctx context.Context, arg EnqueueJobParams) error
+	FailJob(ctx context.Context, arg FailJobParams) error
 	GetSecret(ctx context.Context, arg GetSecretParams) (string, error)
+	GetSession(ctx context.Context, id string) (Session, error)
+	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) (int64, error)
+	InsertActivitySubject(ctx context.Context, arg InsertActivitySubjectParams) error
+	InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error
+	LatestPasswordReset(ctx context.Context, email string) (LatestPasswordResetRow, error)
+	LeaseJob(ctx context.Context, arg LeaseJobParams) error
 	ListSecretHashes(ctx context.Context, arg ListSecretHashesParams) ([]ListSecretHashesRow, error)
+	NodeByTokenID(ctx context.Context, daemonTokenID string) (NodeByTokenIDRow, error)
+	NodeForDaemon(ctx context.Context, id uint32) (NodeForDaemonRow, error)
+	NodeOrigins(ctx context.Context) ([]NodeOriginsRow, error)
+	NodesOfUser(ctx context.Context, arg NodesOfUserParams) ([]uint32, error)
+	PutSession(ctx context.Context, arg PutSessionParams) error
+	RecoveryTokensForUser(ctx context.Context, userID uint32) ([]RecoveryTokensForUserRow, error)
+	RetryJob(ctx context.Context, arg RetryJobParams) error
+	ServerByShortUUID(ctx context.Context, uuidshort string) (ServerByShortUUIDRow, error)
+	ServerByUUID(ctx context.Context, uuid string) (ServerByUUIDRow, error)
+	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) (int64, error)
+	SettingValue(ctx context.Context, key string) (string, error)
+	SubuserPermissions(ctx context.Context, arg SubuserPermissionsParams) (sql.NullString, error)
+	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
+	// A code of a step that is not later than the last one used is refused: the update changes a row only when it is.
+	UseTOTPStep(ctx context.Context, arg UseTOTPStepParams) (int64, error)
+	UserByEmail(ctx context.Context, email string) (UserByEmailRow, error)
+	// Users, API keys, sessions, resets and recovery tokens: what the authorizer and the sign-in endpoints read and write.
+	UserByID(ctx context.Context, id uint32) (UserByIDRow, error)
+	// The columns use utf8mb4_unicode_ci, so a name and an address are compared without regard to case.
+	UserByUsername(ctx context.Context, username string) (UserByUsernameRow, error)
+	UserUUID(ctx context.Context, id uint32) (string, error)
 }
 
 var _ Querier = (*Queries)(nil)
