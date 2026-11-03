@@ -368,8 +368,8 @@ func TestListAndView(t *testing.T) {
 func TestIncludes(t *testing.T) {
 	r := newRig(t)
 	rp := r.do(grace, "GET", "/7?include=allocations,location", "")
-	if rp.Status != 200 || rp.At("relationships", "allocations", "object") != "list" || rp.At("relationships", "allocations", "data", 0, "attributes", "port") != 25565.0 ||
-		rp.At("relationships", "location", "object") != "location" || rp.At("relationships", "location", "attributes", "short") != "us.nyc" {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "allocations", "object") != "list" || rp.At("attributes", "relationships", "allocations", "data", 0, "attributes", "port") != 25565.0 ||
+		rp.At("attributes", "relationships", "location", "object") != "location" || rp.At("attributes", "relationships", "location", "attributes", "short") != "us.nyc" {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
 	if !r.store.lastLoad["allocations"] || !r.store.lastLoad["location"] {
@@ -380,8 +380,8 @@ func TestIncludes(t *testing.T) {
 	r = newRig(t)
 	rp = r.do(bob, "GET", "?include=allocations,location", "")
 	for _, name := range []string{"allocations", "location"} {
-		if rp.At("data", 0, "relationships", name, "object") != "null_resource" {
-			t.Errorf("%s = %v", name, rp.At("data", 0, "relationships", name))
+		if rp.At("data", 0, "attributes", "relationships", name, "object") != "null_resource" {
+			t.Errorf("%s = %v", name, rp.At("data", 0, "attributes", "relationships", name))
 		}
 	}
 	if len(r.store.lastLoad) != 0 {
@@ -390,11 +390,11 @@ func TestIncludes(t *testing.T) {
 	// The servers of a node: shown to a key that may read servers, a null resource to one that may not.
 	r = newRig(t)
 	rp = r.do(grace, "GET", "/7?include=servers", "")
-	if rp.Status != 200 || rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "servers", "object") != "list" || rp.At("attributes", "relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
 		t.Errorf("servers: %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
 	}
 	r = newRig(t)
-	if rp = r.do(bob, "GET", "/7?include=servers", ""); rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp = r.do(bob, "GET", "/7?include=servers", ""); rp.At("attributes", "relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("no right to servers: %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }

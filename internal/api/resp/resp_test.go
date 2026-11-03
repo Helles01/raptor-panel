@@ -34,7 +34,7 @@ func TestItem(t *testing.T) {
 
 	nested := item.With("allocations", NewList([]Item{NewItem("allocation", map[string]any{"port": 25565})}))
 	got = toMap(t, nested)
-	rel := got["relationships"].(map[string]any)["allocations"].(map[string]any)
+	rel := got["attributes"].(map[string]any)["relationships"].(map[string]any)["allocations"].(map[string]any)
 	if rel["object"] != "list" || len(rel["data"].([]any)) != 1 {
 		t.Errorf("relationship = %v", rel)
 	}
@@ -232,5 +232,31 @@ func TestItemMeta(t *testing.T) {
 	}
 	if _, ok := toMap(t, item)["meta"]; ok {
 		t.Error("an item without meta must not have the key")
+	}
+}
+
+// The reference's serializer merges what an item includes into the item's data, so the relationships are inside the attributes, after the
+// attributes of the item itself, and the frontend reads them from there. Meta stays beside the attributes.
+func TestRelationshipsAreInsideTheAttributes(t *testing.T) {
+	item := NewItem("server_schedule", map[string]any{"id": 1}).
+		With("tasks", NewList([]Item{NewItem("schedule_task", map[string]any{"id": 5})})).
+		WithMeta("note", "x")
+	raw, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"object":"server_schedule","attributes":{"id":1,"relationships":{"tasks":{"object":"list","data":[{"object":"schedule_task","attributes":{"id":5}}]}}},"meta":{"note":"x"}}`
+	if string(raw) != want {
+		t.Errorf("item = %s\nwant   %s", raw, want)
+	}
+
+	// Attributes without a field, and a null resource, which has nowhere to put them.
+	empty, _ := json.Marshal(NewItem("x", struct{}{}).With("a", NewItem("y", map[string]any{"k": 1})))
+	if string(empty) != `{"object":"x","attributes":{"relationships":{"a":{"object":"y","attributes":{"k":1}}}}}` {
+		t.Errorf("empty attributes: %s", empty)
+	}
+	null, _ := json.Marshal(NewItem("null_resource", nil).With("a", NewItem("y", nil)))
+	if string(null) != `{"object":"null_resource","attributes":null}` {
+		t.Errorf("null resource: %s", null)
 	}
 }

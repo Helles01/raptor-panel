@@ -253,7 +253,7 @@ func TestList(t *testing.T) {
 		t.Errorf("first = %v", rp.At("data", 0))
 	}
 	// Without the include, no password is mentioned or opened.
-	if rp.Has("data", 0, "relationships") || rp.Contains("Existing1") {
+	if rp.Has("data", 0, "attributes", "relationships") || rp.Contains("Existing1") {
 		t.Errorf("a password came without being asked for: %s", rp.Raw)
 	}
 }
@@ -262,8 +262,8 @@ func TestPasswordsAreForThoseWhoMaySeeThem(t *testing.T) {
 	r := newRig(t)
 	for _, user := range []uint64{ada, grace, bob} {
 		rp := r.do(user, "GET", "?include=password", "")
-		if rp.Status != 200 || rp.At("data", 0, "relationships", "password", "object") != "database_password" ||
-			rp.At("data", 0, "relationships", "password", "attributes", "password") != "Existing1Password.ok" {
+		if rp.Status != 200 || rp.At("data", 0, "attributes", "relationships", "password", "object") != "database_password" ||
+			rp.At("data", 0, "attributes", "relationships", "password", "attributes", "password") != "Existing1Password.ok" {
 			t.Errorf("user %d: %s", user, rp.Raw)
 		}
 		if rp.Header.Get("Cache-Control") != "no-store" {
@@ -271,11 +271,11 @@ func TestPasswordsAreForThoseWhoMaySeeThem(t *testing.T) {
 		}
 	}
 	rp := r.do(cleo, "GET", "?include=password", "")
-	if rp.Status != 200 || rp.At("data", 0, "relationships", "password", "object") != "null_resource" || rp.Contains("Existing1") {
+	if rp.Status != 200 || rp.At("data", 0, "attributes", "relationships", "password", "object") != "null_resource" || rp.Contains("Existing1") {
 		t.Errorf("cleo: %s", rp.Raw)
 	}
 	// Unknown includes are left out.
-	if rp := r.do(ada, "GET", "?include=host", ""); rp.Has("data", 0, "relationships") {
+	if rp := r.do(ada, "GET", "?include=host", ""); rp.Has("data", 0, "attributes", "relationships") {
 		t.Errorf("answer = %s", rp.Raw)
 	}
 }
@@ -328,7 +328,7 @@ func TestCreate(t *testing.T) {
 		rp.At("attributes", "connections_from") != "203.0.113.%" || rp.At("attributes", "id") != "101" {
 		t.Errorf("attributes = %v", rp.At("attributes"))
 	}
-	pw, _ := rp.At("relationships", "password", "attributes", "password").(string)
+	pw, _ := rp.At("attributes", "relationships", "password", "attributes", "password").(string)
 	if !passwordForm.MatchString(pw) {
 		t.Errorf("password = %q", pw)
 	}
@@ -356,7 +356,7 @@ func TestCreate(t *testing.T) {
 func TestCreateByAUserWhoMaySeeNoPassword(t *testing.T) {
 	r := newRig(t)
 	rp := r.do(dave, "POST", "", `{"database":"world3","remote":"%"}`)
-	if rp.Status != 200 || rp.At("relationships", "password", "object") != "null_resource" || rp.Contains(r.store.passwords[101]) {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "password", "object") != "null_resource" || rp.Contains(r.store.passwords[101]) {
 		t.Errorf("answer = %d %s", rp.Status, rp.Raw)
 	}
 }
@@ -509,7 +509,7 @@ func TestRotatePassword(t *testing.T) {
 	if rp.Status != 200 {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
-	pw, _ := rp.At("relationships", "password", "attributes", "password").(string)
+	pw, _ := rp.At("attributes", "relationships", "password", "attributes", "password").(string)
 	if !passwordForm.MatchString(pw) || pw == "Existing1Password.ok" || r.store.passwords[7] != pw {
 		t.Errorf("password %q, stored %q", pw, r.store.passwords[7])
 	}

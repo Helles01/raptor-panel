@@ -48,3 +48,7 @@ they are one table each and can share one implementation behind small adapters.
 ## Done so far (2026-11-03)
 All the stores of `app.Stores` are implemented in `internal/store` and tested on a real MariaDB (`TestEveryStoreHasAConstructor` checks the list; the call to a node and the secret migration are made elsewhere): the authorizer (6), sessions (1), sign-in (6), pages (3), outbox (3) and the
 node/user lookups they need, the four of the administrator, the eight of the control routes and the node API (see the note), the client, account and settings stores, the Application API (users, locations, allocations, nests, nodes, servers and the databases of a server), and the owner's allocations, subusers, schedules and backups with the scheduler and the housekeeping jobs. See `modules/20a-sql-first-stores.md`.
+
+## Two more (2026-11-03)
+The wiring needed two stores that were not in the list: `pageapi.Origins` (the nodes the page may connect to; `store.PageOrigins` existed) and `mail.Settings` (the mail server's settings and its sealed password;
+`store.MailSettings`). `app.Stores` has **68** fields now; `cmd/raptor/stores.go` fills all but the call to an old node and the secret migration, and `Stores.PanelMissing` says what a running panel needs.

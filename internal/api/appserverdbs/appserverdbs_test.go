@@ -284,7 +284,7 @@ func TestListAndView(t *testing.T) {
 	if rp.At("data", 0, "object") != "server_database" || !reflect.DeepEqual(rp.At("data", 0, "attributes"), want) {
 		t.Errorf("first = %v", rp.At("data", 0))
 	}
-	if rp.Contains("Existing1") || rp.Has("data", 0, "relationships") || len(r.store.lastLoad) != 0 {
+	if rp.Contains("Existing1") || rp.Has("data", 0, "attributes", "relationships") || len(r.store.lastLoad) != 0 {
 		t.Errorf("a password or a relation came without being asked for: %s, load %v", rp.Raw, r.store.lastLoad)
 	}
 
@@ -307,20 +307,20 @@ func TestIncludes(t *testing.T) {
 	r := newRig(t, true)
 	rp := r.do(grace, "GET", "/7/databases/1?include=password,host", "")
 	if rp.Status != 200 || rp.Header.Get("Cache-Control") != "no-store" ||
-		!reflect.DeepEqual(rp.At("relationships", "password"), map[string]any{"object": "database_password", "attributes": map[string]any{"password": "Existing1Password.ok"}}) ||
-		rp.At("relationships", "host", "object") != "database_host" || rp.At("relationships", "host", "attributes", "host") != "db.example.com" {
+		!reflect.DeepEqual(rp.At("attributes", "relationships", "password"), map[string]any{"object": "database_password", "attributes": map[string]any{"password": "Existing1Password.ok"}}) ||
+		rp.At("attributes", "relationships", "host", "object") != "database_host" || rp.At("attributes", "relationships", "host", "attributes", "host") != "db.example.com" {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
 	if rp.Contains("hunter2") || rp.Contains("\"panel\"") && rp.Contains("password\":\"panel") {
 		t.Error("the password of the host's account is shown")
 	}
-	if rp := r.do(grace, "GET", "/7/databases?include=password", ""); rp.Header.Get("Cache-Control") != "no-store" || rp.At("data", 0, "relationships", "password", "attributes", "password") != "Existing1Password.ok" {
+	if rp := r.do(grace, "GET", "/7/databases?include=password", ""); rp.Header.Get("Cache-Control") != "no-store" || rp.At("data", 0, "attributes", "relationships", "password", "attributes", "password") != "Existing1Password.ok" {
 		t.Errorf("list: %s", rp.Raw)
 	}
 	// Without the right to read database hosts the host is a null resource, and the store is not asked.
 	r = newRig(t, true)
 	rp = r.do(bob, "GET", "/7/databases/1?include=host", "")
-	if rp.At("relationships", "host", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp.At("attributes", "relationships", "host", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load %v", rp.Raw, r.store.lastLoad)
 	}
 }
@@ -339,7 +339,7 @@ func TestCreate(t *testing.T) {
 	}
 	// The password is not part of the answer unless it is asked for.
 	pw := r.store.passwords[101]
-	if !passwordForm.MatchString(pw) || rp.Contains(pw) || rp.Has("relationships") {
+	if !passwordForm.MatchString(pw) || rp.Contains(pw) || rp.Has("attributes", "relationships") {
 		t.Errorf("password %q, answer %s", pw, rp.Raw)
 	}
 	if len(r.hosts.runs) != 1 || r.hosts.runs[0].Host != 11 || len(r.hosts.runs[0].SQL) != 3 || !strings.HasPrefix(r.hosts.runs[0].SQL[0], "CREATE DATABASE IF NOT EXISTS `s7_survival`") || r.hosts.runs[0].Args[1][0] != pw {
@@ -356,7 +356,7 @@ func TestCreate(t *testing.T) {
 
 	// Asked for, it is shown once, and the answer must not be kept.
 	rp = r.do(grace, "POST", "/7/databases?include=password", `{"database":"second","remote":"%","host":12}`)
-	if rp.Status != 201 || rp.Header.Get("Cache-Control") != "no-store" || rp.At("relationships", "password", "attributes", "password") != r.store.passwords[102] || r.hosts.runs[1].Host != 12 {
+	if rp.Status != 201 || rp.Header.Get("Cache-Control") != "no-store" || rp.At("attributes", "relationships", "password", "attributes", "password") != r.store.passwords[102] || r.hosts.runs[1].Host != 12 {
 		t.Errorf("with the password: %d %s", rp.Status, rp.Raw)
 	}
 }
@@ -470,7 +470,7 @@ func TestResetPassword(t *testing.T) {
 		t.Error("the host was not given the new password")
 	}
 	// The new password is the one a later request can ask for.
-	if rp := r.do(grace, "GET", "/7/databases/1?include=password", ""); rp.At("relationships", "password", "attributes", "password") != pw {
+	if rp := r.do(grace, "GET", "/7/databases/1?include=password", ""); rp.At("attributes", "relationships", "password", "attributes", "password") != pw {
 		t.Errorf("shown: %s", rp.Raw)
 	}
 	for _, path := range []string{"/99/databases/1/reset-password", "/7/databases/2/reset-password", "/7/databases/99/reset-password"} {

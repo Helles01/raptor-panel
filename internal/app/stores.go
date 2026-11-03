@@ -27,6 +27,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/subuserapi"
 	"github.com/Helles01/raptor-panel/internal/auth/session"
 	"github.com/Helles01/raptor-panel/internal/dbhosts"
+	"github.com/Helles01/raptor-panel/internal/mail"
 	"github.com/Helles01/raptor-panel/internal/maintenance"
 	"github.com/Helles01/raptor-panel/internal/outbox"
 	"github.com/Helles01/raptor-panel/internal/schedules"
@@ -77,6 +78,7 @@ type Stores struct {
 	DatabaseapiActivityLog     databaseapi.ActivityLog
 	DatabaseapiStore           databaseapi.Store
 	FileapiActivityLog         fileapi.ActivityLog
+	PageapiOrigins             pageapi.Origins
 	PageapiSettings            pageapi.Settings
 	PageapiUsers               pageapi.Users
 	RemoteapiActivitySink      remoteapi.ActivitySink
@@ -95,6 +97,7 @@ type Stores struct {
 	SubuserapiStore            subuserapi.Store
 	SessionStore               session.Store
 	DbhostsLookup              dbhosts.Lookup
+	MailSettings               mail.Settings
 	MaintenanceActivityStore   maintenance.ActivityStore
 	MaintenanceBackupStore     maintenance.BackupStore
 	MaintenanceResetTokenStore maintenance.ResetTokenStore

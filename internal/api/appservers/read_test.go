@@ -104,16 +104,16 @@ func TestIncludes(t *testing.T) {
 	if rp.Status != 200 {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
-	if rp.At("relationships", "allocations", "object") != "list" || len(rp.At("relationships", "allocations", "data").([]any)) != 3 ||
-		rp.At("relationships", "user", "object") != "user" || rp.At("relationships", "node", "object") != "node" {
-		t.Errorf("relationships = %v", rp.At("relationships"))
+	if rp.At("attributes", "relationships", "allocations", "object") != "list" || len(rp.At("attributes", "relationships", "allocations", "data").([]any)) != 3 ||
+		rp.At("attributes", "relationships", "user", "object") != "user" || rp.At("attributes", "relationships", "node", "object") != "node" {
+		t.Errorf("relationships = %v", rp.At("attributes", "relationships"))
 	}
 	// The variables of a server are read with the right to read servers, and carry the server's own value.
-	if rp.At("relationships", "variables", "data", 0, "object") != "server_variable" || rp.At("relationships", "variables", "data", 0, "attributes", "server_value") != "paper.jar" {
-		t.Errorf("variables = %v", rp.At("relationships", "variables"))
+	if rp.At("attributes", "relationships", "variables", "data", 0, "object") != "server_variable" || rp.At("attributes", "relationships", "variables", "data", 0, "attributes", "server_value") != "paper.jar" {
+		t.Errorf("variables = %v", rp.At("attributes", "relationships", "variables"))
 	}
-	if rp.Has("relationships", "transfer") || rp.Has("relationships", "nothing") {
-		t.Errorf("relationships = %v", rp.At("relationships"))
+	if rp.Has("attributes", "relationships", "transfer") || rp.Has("attributes", "relationships", "nothing") {
+		t.Errorf("relationships = %v", rp.At("attributes", "relationships"))
 	}
 	for _, name := range []string{"allocations", "user", "node", "variables", "databases"} {
 		if !r.store.lastLoad[name] {
@@ -125,15 +125,15 @@ func TestIncludes(t *testing.T) {
 	r = newRig(t)
 	rp = r.do(bob, "GET", "/7?include=allocations,user,node,databases,nest,egg,location,subusers", "")
 	for _, name := range []string{"allocations", "user", "node", "databases", "nest", "egg", "location", "subusers"} {
-		if rp.At("relationships", name, "object") != "null_resource" {
-			t.Errorf("%s = %v", name, rp.At("relationships", name))
+		if rp.At("attributes", "relationships", name, "object") != "null_resource" {
+			t.Errorf("%s = %v", name, rp.At("attributes", "relationships", name))
 		}
 	}
 	if len(r.store.lastLoad) != 0 {
 		t.Errorf("load = %v", r.store.lastLoad)
 	}
 	// What is asked for in a list is attached to each server.
-	if rp := r.do(grace, "GET", "?include=user", ""); rp.At("data", 0, "relationships", "user", "object") != "user" || rp.At("data", 1, "relationships", "user", "object") != "user" {
+	if rp := r.do(grace, "GET", "?include=user", ""); rp.At("data", 0, "attributes", "relationships", "user", "object") != "user" || rp.At("data", 1, "attributes", "relationships", "user", "object") != "user" {
 		t.Errorf("list: %s", rp.Raw)
 	}
 }

@@ -274,15 +274,15 @@ func TestIncludes(t *testing.T) {
 	r := newRig(t)
 	// A key that may read nodes gets them, and the store is asked for them.
 	rp := r.do(grace, "GET", "?include=nodes", "")
-	if rp.Status != 200 || rp.At("data", 0, "relationships", "nodes", "object") != "list" || rp.At("data", 0, "relationships", "nodes", "data", 0, "attributes", "name") != "node-7" {
+	if rp.Status != 200 || rp.At("data", 0, "attributes", "relationships", "nodes", "object") != "list" || rp.At("data", 0, "attributes", "relationships", "nodes", "data", 0, "attributes", "name") != "node-7" {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
 	if !r.store.lastLoad["nodes"] {
 		t.Errorf("load = %v", r.store.lastLoad)
 	}
 	// The second location has none: an empty list, not a null resource.
-	if rp.At("data", 1, "relationships", "nodes", "object") != "list" || len(rp.At("data", 1, "relationships", "nodes", "data").([]any)) != 0 {
-		t.Errorf("empty = %v", rp.At("data", 1, "relationships"))
+	if rp.At("data", 1, "attributes", "relationships", "nodes", "object") != "list" || len(rp.At("data", 1, "attributes", "relationships", "nodes", "data").([]any)) != 0 {
+		t.Errorf("empty = %v", rp.At("data", 1, "attributes", "relationships"))
 	}
 	// A node shown here does not carry the secrets of the node.
 	if rp.Contains("daemon_token") || rp.Contains("token_id") {
@@ -292,23 +292,23 @@ func TestIncludes(t *testing.T) {
 	// A key that may not is told so, and the store is not asked.
 	r = newRig(t)
 	rp = r.do(bob, "GET", "/1?include=nodes", "")
-	if rp.Status != 200 || rp.At("relationships", "nodes", "object") != "null_resource" || rp.At("relationships", "nodes", "attributes") != nil || len(r.store.lastLoad) != 0 {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "nodes", "object") != "null_resource" || rp.At("attributes", "relationships", "nodes", "attributes") != nil || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
 	}
 
 	// The servers of a location are shown to a key that may read servers, and a null resource is shown to one that may not.
 	r = newRig(t)
 	rp = r.do(grace, "GET", "/1?include=servers", "")
-	if rp.Status != 200 || rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "servers", "object") != "list" || rp.At("attributes", "relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
 		t.Errorf("servers: %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
 	}
 	r = newRig(t)
-	if rp = r.do(bob, "GET", "/1?include=servers", ""); rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp = r.do(bob, "GET", "/1?include=servers", ""); rp.At("attributes", "relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("no right to servers: %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 	// A name that is not an include is left out.
 	for _, q := range []string{"?include=nothing", "?include=nodes.nothing"} {
-		if rp = r.do(grace, "GET", "/1"+q, ""); rp.Status != 200 || rp.Has("relationships", "nothing") {
+		if rp = r.do(grace, "GET", "/1"+q, ""); rp.Status != 200 || rp.Has("attributes", "relationships", "nothing") {
 			t.Errorf("%s: %d %s", q, rp.Status, rp.Raw)
 		}
 	}

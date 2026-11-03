@@ -263,25 +263,25 @@ func TestNests(t *testing.T) {
 func TestNestIncludes(t *testing.T) {
 	r := newRig(t)
 	rp := r.do(grace, "/1?include=eggs")
-	if rp.Status != 200 || rp.At("relationships", "eggs", "object") != "list" || rp.At("relationships", "eggs", "data", 1, "attributes", "name") != "Paper" || rp.At("relationships", "eggs", "data", 0, "object") != "egg" {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "eggs", "object") != "list" || rp.At("attributes", "relationships", "eggs", "data", 1, "attributes", "name") != "Paper" || rp.At("attributes", "relationships", "eggs", "data", 0, "object") != "egg" {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
-	if rp := r.do(grace, "/2?include=eggs"); len(rp.At("relationships", "eggs", "data").([]any)) != 0 {
+	if rp := r.do(grace, "/2?include=eggs"); len(rp.At("attributes", "relationships", "eggs", "data").([]any)) != 0 {
 		t.Errorf("a nest without eggs: %s", rp.Raw)
 	}
 	// Without the right to read eggs the nest is shown with a null resource, and the store is not asked.
 	r = newRig(t)
 	rp = r.do(bob, "/1?include=eggs")
-	if rp.At("relationships", "eggs", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp.At("attributes", "relationships", "eggs", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 	// The servers of a nest: shown to a key that may read servers, a null resource to one that may not.
 	r = newRig(t)
-	if rp := r.do(grace, "/1?include=servers"); rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
+	if rp := r.do(grace, "/1?include=servers"); rp.At("attributes", "relationships", "servers", "object") != "list" || rp.At("attributes", "relationships", "servers", "data", 0, "attributes", "name") != "Survival" || !r.store.lastLoad["servers"] {
 		t.Errorf("servers: %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 	r = newRig(t)
-	if rp := r.do(bob, "/1?include=servers"); rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp := r.do(bob, "/1?include=servers"); rp.At("attributes", "relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("no right to servers: %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }
@@ -347,20 +347,20 @@ func TestEggIncludes(t *testing.T) {
 	if rp.Status != 200 {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
-	if rp.At("relationships", "nest", "object") != "nest" || rp.At("relationships", "nest", "attributes", "name") != "Minecraft" {
-		t.Errorf("nest = %v", rp.At("relationships", "nest"))
+	if rp.At("attributes", "relationships", "nest", "object") != "nest" || rp.At("attributes", "relationships", "nest", "attributes", "name") != "Minecraft" {
+		t.Errorf("nest = %v", rp.At("attributes", "relationships", "nest"))
 	}
 	wantVar := map[string]any{
 		"id": 100.0, "egg_id": 10.0, "name": "Server Jar", "description": "The jar", "env_variable": "SERVER_JARFILE", "default_value": "server.jar",
 		"user_viewable": true, "user_editable": false, "rules": "required|string", "created_at": "2026-10-01T10:00:00.000000Z", "updated_at": "2026-10-01T10:00:01.000000Z",
 	}
-	if rp.At("relationships", "variables", "object") != "list" || rp.At("relationships", "variables", "data", 0, "object") != "egg_variable" ||
-		!reflect.DeepEqual(rp.At("relationships", "variables", "data", 0, "attributes"), wantVar) {
-		t.Errorf("variables = %v", rp.At("relationships", "variables"))
+	if rp.At("attributes", "relationships", "variables", "object") != "list" || rp.At("attributes", "relationships", "variables", "data", 0, "object") != "egg_variable" ||
+		!reflect.DeepEqual(rp.At("attributes", "relationships", "variables", "data", 0, "attributes"), wantVar) {
+		t.Errorf("variables = %v", rp.At("attributes", "relationships", "variables"))
 	}
 	// An egg that borrows nothing has nothing to include.
-	if rp.At("relationships", "config", "object") != "null_resource" || rp.At("relationships", "script", "object") != "null_resource" {
-		t.Errorf("config = %v, script = %v", rp.At("relationships", "config"), rp.At("relationships", "script"))
+	if rp.At("attributes", "relationships", "config", "object") != "null_resource" || rp.At("attributes", "relationships", "script", "object") != "null_resource" {
+		t.Errorf("config = %v, script = %v", rp.At("attributes", "relationships", "config"), rp.At("attributes", "relationships", "script"))
 	}
 
 	// One that borrows is shown what it gets: an item without an object name, as the reference's serializer writes it.
@@ -368,11 +368,11 @@ func TestEggIncludes(t *testing.T) {
 	if !strings.Contains(string(rp.Raw), `"config":{"object":null,"attributes":`) || !strings.Contains(string(rp.Raw), `"script":{"object":null,"attributes":`) {
 		t.Fatalf("borrowing: %s", rp.Raw)
 	}
-	cfg := rp.At("relationships", "config", "attributes").(map[string]any)
+	cfg := rp.At("attributes", "relationships", "config", "attributes").(map[string]any)
 	if cfg["stop"] != "stop" || !reflect.DeepEqual(cfg["startup"], map[string]any{"done": "ready"}) || !reflect.DeepEqual(cfg["files"], map[string]any{"a.yml": map[string]any{"parser": "yaml"}}) {
 		t.Errorf("config = %v", cfg)
 	}
-	scr := rp.At("relationships", "script", "attributes").(map[string]any)
+	scr := rp.At("attributes", "relationships", "script", "attributes").(map[string]any)
 	if scr["install"] != "#!/bin/sh\necho borrowed" || scr["entry"] != "sh" || scr["container"] != "alpine:3.19" || scr["privileged"] != false {
 		t.Errorf("script = %v", scr)
 	}
@@ -380,13 +380,13 @@ func TestEggIncludes(t *testing.T) {
 	// Without the right to read nests or eggs, those includes are null; the egg's own are shown whatever the key.
 	r = newRig(t)
 	rp = r.do(cleo, "/1/eggs/10?include=nest,variables,config")
-	if rp.At("relationships", "nest", "object") != "null_resource" || rp.At("relationships", "variables", "object") != "list" || rp.Has("relationships", "config", "attributes") && rp.At("relationships", "config", "object") != "null_resource" {
+	if rp.At("attributes", "relationships", "nest", "object") != "null_resource" || rp.At("attributes", "relationships", "variables", "object") != "list" || rp.Has("attributes", "relationships", "config", "attributes") && rp.At("attributes", "relationships", "config", "object") != "null_resource" {
 		t.Errorf("answer = %s", rp.Raw)
 	}
 	if r.store.lastLoad["nest"] || !r.store.lastLoad["variables"] {
 		t.Errorf("load = %v", r.store.lastLoad)
 	}
-	if rp := r.do(grace, "/1/eggs?include=nest,servers"); rp.At("data", 0, "relationships", "nest", "object") != "nest" || rp.At("data", 0, "relationships", "servers", "object") != "list" {
+	if rp := r.do(grace, "/1/eggs?include=nest,servers"); rp.At("data", 0, "attributes", "relationships", "nest", "object") != "nest" || rp.At("data", 0, "attributes", "relationships", "servers", "object") != "list" {
 		t.Errorf("list includes: %s", rp.Raw)
 	}
 }

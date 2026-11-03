@@ -707,8 +707,8 @@ func fill(u appkit.User, load appkit.Includes) appkit.User {
 func TestTheServersOfAUser(t *testing.T) {
 	r := newRig(t)
 	rp := r.do(grace, "GET", "/10?include=servers", "")
-	if rp.Status != 200 || rp.At("relationships", "servers", "object") != "list" || rp.At("relationships", "servers", "data", 0, "object") != "server" ||
-		rp.At("relationships", "servers", "data", 0, "attributes", "name") != "Survival" || rp.At("relationships", "servers", "data", 0, "attributes", "user") != 10.0 {
+	if rp.Status != 200 || rp.At("attributes", "relationships", "servers", "object") != "list" || rp.At("attributes", "relationships", "servers", "data", 0, "object") != "server" ||
+		rp.At("attributes", "relationships", "servers", "data", 0, "attributes", "name") != "Survival" || rp.At("attributes", "relationships", "servers", "data", 0, "attributes", "user") != 10.0 {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
 	if !r.store.lastLoad["servers"] {
@@ -722,12 +722,12 @@ func TestTheServersOfAUser(t *testing.T) {
 	// A key that may read users but not servers is given a null resource, and the store is not asked.
 	r = newRig(t)
 	rp = r.do(bob, "GET", "/10?include=servers", "")
-	if rp.At("relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp.At("attributes", "relationships", "servers", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 	// Without the include nothing is attached, and nothing is loaded.
 	r = newRig(t)
-	if rp := r.do(grace, "GET", "/10", ""); rp.Has("relationships") || len(r.store.lastLoad) != 0 {
+	if rp := r.do(grace, "GET", "/10", ""); rp.Has("attributes", "relationships") || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }

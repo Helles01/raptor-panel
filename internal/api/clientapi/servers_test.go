@@ -58,19 +58,19 @@ func TestServerPageOfTheOwner(t *testing.T) {
 		"is_transferring":           false,
 		"skip_scripts":              false,
 	}
-	if got := rp.at("attributes"); !reflect.DeepEqual(got, want) {
+	if got := withoutKey(rp.at("attributes"), "relationships"); !reflect.DeepEqual(got, want) {
 		t.Errorf("attributes =\n%v\nwant\n%v", got, want)
 	}
 
 	// The allocations come with it: the primary one is the default, the notes and alias are null when not set.
-	if rp.at("relationships", "allocations", "object") != "list" || rp.length("relationships", "allocations", "data") != 2 {
-		t.Fatalf("allocations = %v", rp.at("relationships", "allocations"))
+	if rp.at("attributes", "relationships", "allocations", "object") != "list" || rp.length("attributes", "relationships", "allocations", "data") != 2 {
+		t.Fatalf("allocations = %v", rp.at("attributes", "relationships", "allocations"))
 	}
 	wantAllocations := []any{
 		map[string]any{"object": "allocation", "attributes": map[string]any{"id": 10.0, "ip": "10.0.0.5", "ip_alias": nil, "port": 25565.0, "notes": "main", "is_default": true}},
 		map[string]any{"object": "allocation", "attributes": map[string]any{"id": 11.0, "ip": "10.0.0.5", "ip_alias": "play.example.com", "port": 25566.0, "notes": nil, "is_default": false}},
 	}
-	if got := rp.at("relationships", "allocations", "data"); !reflect.DeepEqual(got, wantAllocations) {
+	if got := rp.at("attributes", "relationships", "allocations", "data"); !reflect.DeepEqual(got, wantAllocations) {
 		t.Errorf("allocations =\n%v\nwant\n%v", got, wantAllocations)
 	}
 
@@ -79,12 +79,12 @@ func TestServerPageOfTheOwner(t *testing.T) {
 		map[string]any{"object": "egg_variable", "attributes": map[string]any{"name": "Server Jar", "description": "The file", "env_variable": "SERVER_JARFILE", "default_value": "server.jar", "server_value": nil, "is_editable": true, "rules": "required|string"}},
 		map[string]any{"object": "egg_variable", "attributes": map[string]any{"name": "World", "description": "", "env_variable": "WORLD", "default_value": "world", "server_value": "world2", "is_editable": false, "rules": "string"}},
 	}
-	if got := rp.at("relationships", "variables", "data"); !reflect.DeepEqual(got, wantVariables) {
+	if got := rp.at("attributes", "relationships", "variables", "data"); !reflect.DeepEqual(got, wantVariables) {
 		t.Errorf("variables =\n%v\nwant\n%v", got, wantVariables)
 	}
 
 	for _, name := range []string{"egg", "subusers"} {
-		if rp.has("relationships", name) {
+		if rp.has("attributes", "relationships", name) {
 			t.Errorf("%s came without being asked for", name)
 		}
 	}
@@ -134,19 +134,19 @@ func TestServerPageShowsWhatTheCallerMayRead(t *testing.T) {
 				t.Errorf("invocation = %v", got)
 			}
 			if tt.variables < 0 {
-				if rp.at("relationships", "variables", "object") != "null_resource" || rp.at("relationships", "variables", "attributes") != nil || !rp.has("relationships", "variables", "attributes") {
-					t.Errorf("variables = %v, want a null resource", rp.at("relationships", "variables"))
+				if rp.at("attributes", "relationships", "variables", "object") != "null_resource" || rp.at("attributes", "relationships", "variables", "attributes") != nil || !rp.has("attributes", "relationships", "variables", "attributes") {
+					t.Errorf("variables = %v, want a null resource", rp.at("attributes", "relationships", "variables"))
 				}
-			} else if got := rp.length("relationships", "variables", "data"); got != tt.variables {
+			} else if got := rp.length("attributes", "relationships", "variables", "data"); got != tt.variables {
 				t.Errorf("%d variables", got)
 			}
-			if got := rp.length("relationships", "allocations", "data"); got != tt.allocs {
+			if got := rp.length("attributes", "relationships", "allocations", "data"); got != tt.allocs {
 				t.Errorf("%d allocations", got)
 			}
-			if got := rp.at("relationships", "allocations", "data", 0, "attributes", "notes"); got != tt.notes {
+			if got := rp.at("attributes", "relationships", "allocations", "data", 0, "attributes", "notes"); got != tt.notes {
 				t.Errorf("notes of the primary allocation = %v", got)
 			}
-			if got := rp.at("relationships", "allocations", "data", 0, "attributes", "is_default"); got != true {
+			if got := rp.at("attributes", "relationships", "allocations", "data", 0, "attributes", "is_default"); got != true {
 				t.Errorf("the primary allocation is not the default: %v", got)
 			}
 			if rp.at("meta", "is_server_owner") != false {
@@ -180,12 +180,12 @@ func TestServerPageIncludes(t *testing.T) {
 			t.Fatalf("status = %d: %s", rp.Status, rp.Raw)
 		}
 		wantEgg := map[string]any{"object": "egg", "attributes": map[string]any{"uuid": "egg-uuid", "name": "Vanilla"}}
-		if got := rp.at("relationships", "egg"); !reflect.DeepEqual(got, wantEgg) {
+		if got := rp.at("attributes", "relationships", "egg"); !reflect.DeepEqual(got, wantEgg) {
 			t.Errorf("egg = %v", got)
 		}
 
-		if rp.at("relationships", "subusers", "object") != "list" || rp.length("relationships", "subusers", "data") != 2 {
-			t.Fatalf("subusers = %v", rp.at("relationships", "subusers"))
+		if rp.at("attributes", "relationships", "subusers", "object") != "list" || rp.length("attributes", "relationships", "subusers", "data") != 2 {
+			t.Fatalf("subusers = %v", rp.at("attributes", "relationships", "subusers"))
 		}
 		wantBob := map[string]any{"object": "server_subuser", "attributes": map[string]any{
 			"uuid":        "00000003-0000-4000-8000-000000000000",
@@ -197,7 +197,7 @@ func TestServerPageIncludes(t *testing.T) {
 			"created_at":  "2026-10-21T12:00:00+00:00",
 			"permissions": []any{"control.start", "websocket.connect"},
 		}}
-		if got := rp.at("relationships", "subusers", "data", 0); !reflect.DeepEqual(got, wantBob) {
+		if got := rp.at("attributes", "relationships", "subusers", "data", 0); !reflect.DeepEqual(got, wantBob) {
 			t.Errorf("subuser =\n%v\nwant\n%v", got, wantBob)
 		}
 	})
@@ -205,8 +205,8 @@ func TestServerPageIncludes(t *testing.T) {
 	t.Run("a subuser who may not read users gets a null resource, and the store is not asked", func(t *testing.T) {
 		r := newRig(t)
 		rp := r.as(bob, "GET", "/api/client/servers/aaaa1111?include=subusers")
-		if rp.at("relationships", "subusers", "object") != "null_resource" {
-			t.Errorf("subusers = %v", rp.at("relationships", "subusers"))
+		if rp.at("attributes", "relationships", "subusers", "object") != "null_resource" {
+			t.Errorf("subusers = %v", rp.at("attributes", "relationships", "subusers"))
 		}
 		if len(r.w.subuserReqs) != 0 {
 			t.Errorf("the subusers were read: %v", r.w.subuserReqs)
@@ -216,8 +216,8 @@ func TestServerPageIncludes(t *testing.T) {
 	t.Run("a subuser who may read users sees them", func(t *testing.T) {
 		r := newRig(t)
 		rp := r.as(cleo, "GET", "/api/client/servers/aaaa1111?include=subusers")
-		if rp.length("relationships", "subusers", "data") != 2 {
-			t.Errorf("subusers = %v", rp.at("relationships", "subusers"))
+		if rp.length("attributes", "relationships", "subusers", "data") != 2 {
+			t.Errorf("subusers = %v", rp.at("attributes", "relationships", "subusers"))
 		}
 	})
 
@@ -232,7 +232,7 @@ func TestServerPageIncludes(t *testing.T) {
 
 	t.Run("the egg include may carry a path", func(t *testing.T) {
 		r := newRig(t)
-		if rp := r.as(ada, "GET", "/api/client/servers/aaaa1111?include=egg.nest"); !rp.has("relationships", "egg") {
+		if rp := r.as(ada, "GET", "/api/client/servers/aaaa1111?include=egg.nest"); !rp.has("attributes", "relationships", "egg") {
 			t.Errorf("no egg: %s", rp.Raw)
 		}
 	})
@@ -241,7 +241,7 @@ func TestServerPageIncludes(t *testing.T) {
 		r := newRig(t)
 		r.w.subusers[100] = nil
 		rp := r.as(ada, "GET", "/api/client/servers/aaaa1111?include=subusers")
-		if rp.at("relationships", "subusers", "object") != "list" || rp.length("relationships", "subusers", "data") != 0 || rp.at("relationships", "subusers", "data") == nil {
+		if rp.at("attributes", "relationships", "subusers", "object") != "list" || rp.length("attributes", "relationships", "subusers", "data") != 0 || rp.at("attributes", "relationships", "subusers", "data") == nil {
 			t.Errorf("subusers = %s", rp.Raw)
 		}
 	})
@@ -409,7 +409,7 @@ func TestServerListRows(t *testing.T) {
 		// 100: no startup.read; 101: startup.read; 102: no permissions.
 		wantNull := []bool{true, false, true}
 		for i, null := range wantNull {
-			isNull := rp.at("data", i, "relationships", "variables", "object") == "null_resource"
+			isNull := rp.at("data", i, "attributes", "relationships", "variables", "object") == "null_resource"
 			if isNull != null {
 				t.Errorf("row %d: variables is a null resource: %v, want %v", i, isNull, null)
 			}
@@ -422,14 +422,14 @@ func TestServerListRows(t *testing.T) {
 	t.Run("the owner sees all and is the owner", func(t *testing.T) {
 		r := newRig(t)
 		rp := r.as(ada, "GET", "/api/client")
-		if rp.length("data", 0, "relationships", "allocations", "data") != 2 || rp.length("data", 0, "relationships", "variables", "data") != 2 {
+		if rp.length("data", 0, "attributes", "relationships", "allocations", "data") != 2 || rp.length("data", 0, "attributes", "relationships", "variables", "data") != 2 {
 			t.Errorf("the owner does not see everything: %s", rp.Raw)
 		}
 		for i := 0; i < 3; i++ {
 			if rp.at("data", i, "attributes", "server_owner") != true || rp.at("data", i, "object") != "server" {
 				t.Errorf("row %d = %v", i, rp.at("data", i))
 			}
-			if rp.at("data", i, "relationships", "allocations", "object") != "list" {
+			if rp.at("data", i, "attributes", "relationships", "allocations", "object") != "list" {
 				t.Errorf("row %d has no allocations", i)
 			}
 		}
@@ -441,8 +441,8 @@ func TestServerListRows(t *testing.T) {
 	t.Run("an administrator sees the others' servers whole", func(t *testing.T) {
 		r := newRig(t)
 		rp := r.as(grace, "GET", "/api/client?type=admin-all")
-		if rp.length("data", 0, "relationships", "variables", "data") != 2 {
-			t.Errorf("the variables = %v", rp.at("data", 0, "relationships", "variables"))
+		if rp.length("data", 0, "attributes", "relationships", "variables", "data") != 2 {
+			t.Errorf("the variables = %v", rp.at("data", 0, "attributes", "relationships", "variables"))
 		}
 		if rp.at("data", 0, "attributes", "server_owner") != false {
 			t.Error("an administrator does not own what they see")
@@ -455,8 +455,8 @@ func TestServerListIncludes(t *testing.T) {
 		r := newRig(t)
 		rp := r.as(ada, "GET", "/api/client?include=egg")
 		for i := 0; i < 3; i++ {
-			if rp.at("data", i, "relationships", "egg", "object") != "egg" {
-				t.Errorf("row %d: egg = %v", i, rp.at("data", i, "relationships", "egg"))
+			if rp.at("data", i, "attributes", "relationships", "egg", "object") != "egg" {
+				t.Errorf("row %d: egg = %v", i, rp.at("data", i, "attributes", "relationships", "egg"))
 			}
 		}
 	})
@@ -467,7 +467,7 @@ func TestServerListIncludes(t *testing.T) {
 		if !reflect.DeepEqual(r.w.subuserReqs, [][]uint64{{100, 101, 103}}) {
 			t.Errorf("subusers asked for: %v", r.w.subuserReqs)
 		}
-		if rp.length("data", 0, "relationships", "subusers", "data") != 2 || rp.at("data", 1, "relationships", "subusers", "data") == nil {
+		if rp.length("data", 0, "attributes", "relationships", "subusers", "data") != 2 || rp.at("data", 1, "attributes", "relationships", "subusers", "data") == nil {
 			t.Errorf("subusers = %s", rp.Raw)
 		}
 	})
@@ -479,7 +479,7 @@ func TestServerListIncludes(t *testing.T) {
 		if !reflect.DeepEqual(r.w.subuserReqs, [][]uint64{{101}}) {
 			t.Errorf("subusers asked for: %v", r.w.subuserReqs)
 		}
-		if rp.at("data", 0, "relationships", "subusers", "object") != "null_resource" || rp.at("data", 1, "relationships", "subusers", "object") != "list" {
+		if rp.at("data", 0, "attributes", "relationships", "subusers", "object") != "null_resource" || rp.at("data", 1, "attributes", "relationships", "subusers", "object") != "list" {
 			t.Errorf("subusers = %s", rp.Raw)
 		}
 	})
@@ -487,7 +487,7 @@ func TestServerListIncludes(t *testing.T) {
 	t.Run("no includes, no reading", func(t *testing.T) {
 		r := newRig(t)
 		rp := r.as(ada, "GET", "/api/client")
-		if len(r.w.subuserReqs) != 0 || rp.has("data", 0, "relationships", "egg") || rp.has("data", 0, "relationships", "subusers") {
+		if len(r.w.subuserReqs) != 0 || rp.has("data", 0, "attributes", "relationships", "egg") || rp.has("data", 0, "attributes", "relationships", "subusers") {
 			t.Errorf("subusers = %v, %s", r.w.subuserReqs, rp.Raw)
 		}
 	})
@@ -658,8 +658,20 @@ func TestSubuserWithoutPermissionsIsShownWithAnEmptyList(t *testing.T) {
 	r.w.subusers[100][0].Permissions = nil
 
 	rp := r.as(ada, "GET", "/api/client/servers/aaaa1111?include=subusers")
-	perms, ok := rp.at("relationships", "subusers", "data", 0, "attributes", "permissions").([]any)
+	perms, ok := rp.at("attributes", "relationships", "subusers", "data", 0, "attributes", "permissions").([]any)
 	if !ok || len(perms) != 0 {
-		t.Errorf("permissions = %v, want []", rp.at("relationships", "subusers", "data", 0, "attributes", "permissions"))
+		t.Errorf("permissions = %v, want []", rp.at("attributes", "relationships", "subusers", "data", 0, "attributes", "permissions"))
 	}
+}
+
+// withoutKey is a copy of the attributes without one key, for comparing what an item says about itself apart from what it includes.
+func withoutKey(v any, key string) map[string]any {
+	m, _ := v.(map[string]any)
+	out := make(map[string]any, len(m))
+	for k, x := range m {
+		if k != key {
+			out[k] = x
+		}
+	}
+	return out
 }

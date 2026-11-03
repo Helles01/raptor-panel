@@ -1,6 +1,6 @@
 // Package resp builds the JSON envelopes of the API, which follow the reference panel's Fractal serializer:
 //
-//	item:  {"object":"server","attributes":{...},"relationships":{...}}
+//	item:  {"object":"server","attributes":{...,"relationships":{...}}}
 //	list:  {"object":"list","data":[<items>],"meta":{"pagination":{...}}}
 //
 // The React frontend relies on these shapes, including extra meta keys such as startup_command.
@@ -20,12 +20,41 @@ const (
 	MaxPerPage     = 100
 )
 
-// Item is one resource.
+// Item is one resource. Its relationships are written inside its attributes, as the reference's serializer merges what an item includes into the item's own
+// data (PterodactylSerializer::mergeIncludes); the frontend reads them from there.
 type Item struct {
-	Object        string         `json:"object"`
-	Attributes    any            `json:"attributes"`
-	Relationships map[string]any `json:"relationships,omitempty"`
-	Meta          map[string]any `json:"meta,omitempty"`
+	Object        string
+	Attributes    any
+	Relationships map[string]any
+	Meta          map[string]any
+}
+
+// MarshalJSON writes the envelope with the relationships at the end of the attributes. An item whose attributes are not an object (a null resource)
+// has no place for them and shows none.
+func (i Item) MarshalJSON() ([]byte, error) {
+	attrs, err := json.Marshal(i.Attributes)
+	if err != nil {
+		return nil, err
+	}
+	if len(i.Relationships) > 0 && len(attrs) >= 2 && attrs[0] == '{' {
+		rels, err := json.Marshal(i.Relationships)
+		if err != nil {
+			return nil, err
+		}
+		merged := append([]byte(nil), attrs[:len(attrs)-1]...)
+		if len(attrs) > 2 {
+			merged = append(merged, ',')
+		}
+		merged = append(merged, `"relationships":`...)
+		merged = append(merged, rels...)
+		attrs = append(merged, '}')
+	}
+	out := struct {
+		Object     string          `json:"object"`
+		Attributes json.RawMessage `json:"attributes"`
+		Meta       map[string]any  `json:"meta,omitempty"`
+	}{Object: i.Object, Attributes: attrs, Meta: i.Meta}
+	return json.Marshal(out)
 }
 
 // NewItem returns an item of the given object type.

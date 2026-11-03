@@ -59,7 +59,7 @@ func TestAccountActivityEntries(t *testing.T) {
 		if rp.at("data", i, "object") != "activity_log" {
 			t.Errorf("entry %d: object = %v", i, rp.at("data", i, "object"))
 		}
-		if rp.has("data", i, "relationships") {
+		if rp.has("data", i, "attributes", "relationships") {
 			t.Errorf("entry %d has relationships without being asked", i)
 		}
 	}
@@ -146,7 +146,7 @@ func TestActivityTextsAndZone(t *testing.T) {
 		t.Errorf("timestamp = %v", got)
 	}
 	// Every time of the answer is in the panel's zone, also the creation of a user.
-	if got := rp.at("data", 0, "relationships", "actor", "attributes", "created_at"); got != "2026-10-21T14:00:00+02:00" {
+	if got := rp.at("data", 0, "attributes", "relationships", "actor", "attributes", "created_at"); got != "2026-10-21T14:00:00+02:00" {
 		t.Errorf("created_at = %v", got)
 	}
 }
@@ -172,11 +172,11 @@ func TestActivityActors(t *testing.T) {
 		"created_at":  "2026-10-21T12:00:00+00:00",
 	}}
 	// The address is shown as stored; the picture address is made of the lower case form of it.
-	if got := rp.at("data", 0, "relationships", "actor"); !reflect.DeepEqual(got, wantActor) {
+	if got := rp.at("data", 0, "attributes", "relationships", "actor"); !reflect.DeepEqual(got, wantActor) {
 		t.Errorf("actor =\n%v\nwant\n%v", got, wantActor)
 	}
-	if rp.at("data", 2, "relationships", "actor", "object") != "null_resource" || rp.at("data", 2, "relationships", "actor", "attributes") != nil {
-		t.Errorf("an entry without a user = %v", rp.at("data", 2, "relationships"))
+	if rp.at("data", 2, "attributes", "relationships", "actor", "object") != "null_resource" || rp.at("data", 2, "attributes", "relationships", "actor", "attributes") != nil {
+		t.Errorf("an entry without a user = %v", rp.at("data", 2, "attributes", "relationships"))
 	}
 
 	// Without the include nothing is read.
@@ -304,7 +304,7 @@ func TestServerActivity(t *testing.T) {
 		if got.ServerID != 100 || got.HideAdmins || got.List.PerPage != 5 || !got.List.WithActors || !reflect.DeepEqual(got.List.Exclude, activity.HiddenEvents()) {
 			t.Errorf("request = %+v", got)
 		}
-		if rp.length("data") != 3 || rp.at("data", 0, "relationships", "actor", "attributes", "username") != "ada" {
+		if rp.length("data") != 3 || rp.at("data", 0, "attributes", "relationships", "actor", "attributes", "username") != "ada" {
 			t.Errorf("entries = %s", rp.Raw)
 		}
 		if len(r.w.userReqs) != 0 {

@@ -216,6 +216,8 @@ type Querier interface {
 	SetServerPrimaryAllocation(ctx context.Context, arg SetServerPrimaryAllocationParams) error
 	SetUserEmail(ctx context.Context, arg SetUserEmailParams) (int64, error)
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) (int64, error)
+	// What the panel sends mail with: the row of a setting, whose sealed value is the password of the mail server.
+	SettingRowID(ctx context.Context, key string) (uint32, error)
 	SettingValue(ctx context.Context, key string) (string, error)
 	SoftDeleteBackup(ctx context.Context, arg SoftDeleteBackupParams) (int64, error)
 	// The reference deletes an SSH key softly, and so does this.

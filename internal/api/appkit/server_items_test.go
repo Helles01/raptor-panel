@@ -115,7 +115,7 @@ func TestServerIncludes(t *testing.T) {
 	s.Databases = []ServerDatabase{{ID: 12, ServerID: 7, HostID: 2, Name: "s7_world", Username: "u7_abc", Remote: "%", MaxConnections: 5, CreatedAt: t0, UpdatedAt: t0}}
 
 	all := Includes{"allocations": true, "subusers": true, "user": true, "nest": true, "egg": true, "variables": true, "location": true, "node": true, "databases": true}
-	rel := decode(t, everything().Server(s, all))["relationships"].(map[string]any)
+	rel := decode(t, everything().Server(s, all))["attributes"].(map[string]any)["relationships"].(map[string]any)
 	object := func(name string) any { return rel[name].(map[string]any)["object"] }
 	first := func(name string) map[string]any {
 		return rel[name].(map[string]any)["data"].([]any)[0].(map[string]any)
@@ -147,19 +147,19 @@ func TestServerIncludes(t *testing.T) {
 
 	// Without the right to read a resource its include is a null resource.
 	none := viewOf(map[string]auth.Access{})
-	rel = decode(t, none.Server(s, all))["relationships"].(map[string]any)
+	rel = decode(t, none.Server(s, all))["attributes"].(map[string]any)["relationships"].(map[string]any)
 	for name := range all {
 		if object(name) != "null_resource" {
 			t.Errorf("%s = %v", name, rel[name])
 		}
 	}
 	// And what is not asked for is not there; an asked include that was not loaded is a null resource.
-	if rel := decode(t, everything().Server(Server{}, Includes{"user": true, "node": true, "nest": true, "egg": true, "location": true}))["relationships"].(map[string]any); rel["user"].(map[string]any)["object"] != "null_resource" || rel["node"].(map[string]any)["object"] != "null_resource" ||
+	if rel := decode(t, everything().Server(Server{}, Includes{"user": true, "node": true, "nest": true, "egg": true, "location": true}))["attributes"].(map[string]any)["relationships"].(map[string]any); rel["user"].(map[string]any)["object"] != "null_resource" || rel["node"].(map[string]any)["object"] != "null_resource" ||
 		rel["nest"].(map[string]any)["object"] != "null_resource" || rel["egg"].(map[string]any)["object"] != "null_resource" || rel["location"].(map[string]any)["object"] != "null_resource" {
 		t.Errorf("not loaded = %v", rel)
 	}
-	if got := decode(t, everything().Server(s, nil)); got["relationships"] != nil {
-		t.Errorf("relationships without includes = %v", got["relationships"])
+	if got := decode(t, everything().Server(s, nil)); got["attributes"].(map[string]any)["relationships"] != nil {
+		t.Errorf("relationships without includes = %v", got["attributes"].(map[string]any)["relationships"])
 	}
 }
 
@@ -180,7 +180,7 @@ func TestServerDatabaseItem(t *testing.T) {
 		t.Errorf("database = %v", got)
 	}
 
-	rel := decode(t, everything().ServerDatabase(d, Includes{"password": true, "host": true}))["relationships"].(map[string]any)
+	rel := decode(t, everything().ServerDatabase(d, Includes{"password": true, "host": true}))["attributes"].(map[string]any)["relationships"].(map[string]any)
 	if !reflect.DeepEqual(rel["password"], map[string]any{"object": "database_password", "attributes": map[string]any{"password": "Secret1!"}}) {
 		t.Errorf("password = %v", rel["password"])
 	}
@@ -197,13 +197,13 @@ func TestServerDatabaseItem(t *testing.T) {
 
 	// The password is part of the answer to whoever may read the databases; the host needs the right to read database hosts.
 	view := viewOf(map[string]auth.Access{"server_databases": auth.AccessRead})
-	rel = decode(t, view.ServerDatabase(d, Includes{"password": true, "host": true}))["relationships"].(map[string]any)
+	rel = decode(t, view.ServerDatabase(d, Includes{"password": true, "host": true}))["attributes"].(map[string]any)["relationships"].(map[string]any)
 	if rel["password"].(map[string]any)["object"] != "database_password" || rel["host"].(map[string]any)["object"] != "null_resource" {
 		t.Errorf("limited = %v", rel)
 	}
 	// A password the store did not open is not a password.
 	d.Password, d.Host = nil, nil
-	rel = decode(t, everything().ServerDatabase(d, Includes{"password": true, "host": true}))["relationships"].(map[string]any)
+	rel = decode(t, everything().ServerDatabase(d, Includes{"password": true, "host": true}))["attributes"].(map[string]any)["relationships"].(map[string]any)
 	if rel["password"].(map[string]any)["object"] != "null_resource" || rel["host"].(map[string]any)["object"] != "null_resource" {
 		t.Errorf("not loaded = %v", rel)
 	}
@@ -221,7 +221,7 @@ func TestTheServersOfOtherResources(t *testing.T) {
 		"egg":        v.Egg(Egg{Servers: list}, inc),
 		"allocation": v.Allocation(Allocation{Server: &list[0]}, Includes{"server": true}),
 	} {
-		rel := decode(t, item)["relationships"].(map[string]any)
+		rel := decode(t, item)["attributes"].(map[string]any)["relationships"].(map[string]any)
 		key := "servers"
 		if name == "allocation" {
 			key = "server"
@@ -243,7 +243,7 @@ func TestTheServersOfOtherResources(t *testing.T) {
 	for name, item := range map[string]any{
 		"user": v.User(User{Servers: list}, inc), "location": v.Location(Location{}, inc), "node": v.Node(Node{}, inc), "nest": v.Nest(Nest{}, inc), "egg": v.Egg(Egg{}, inc),
 	} {
-		if decode(t, item)["relationships"].(map[string]any)["servers"].(map[string]any)["object"] != "null_resource" {
+		if decode(t, item)["attributes"].(map[string]any)["relationships"].(map[string]any)["servers"].(map[string]any)["object"] != "null_resource" {
 			t.Errorf("%s shows servers to a key that may not read them", name)
 		}
 	}

@@ -340,16 +340,16 @@ func TestListAndView(t *testing.T) {
 		"last_run_at": "2026-10-23T03:00:00+00:00", "next_run_at": "2026-10-24T03:00:00+00:00",
 		"created_at": "2026-10-01T08:00:00+00:00", "updated_at": "2026-10-01T08:00:00+00:00",
 	}
-	if rp.At("data", 0, "object") != "server_schedule" || !reflect.DeepEqual(rp.At("data", 0, "attributes"), want) {
+	if rp.At("data", 0, "object") != "server_schedule" || !reflect.DeepEqual(withoutKey(rp.At("data", 0, "attributes"), "relationships"), want) {
 		t.Errorf("schedule = %v", rp.At("data", 0))
 	}
 	wantTask := map[string]any{
 		"id": 2.0, "sequence_id": 2.0, "action": "power", "payload": "restart", "time_offset": 30.0, "is_queued": true, "continue_on_failure": true,
 		"created_at": "2026-10-01T08:00:00+00:00", "updated_at": "2026-10-01T08:00:00+00:00",
 	}
-	if rp.At("data", 0, "relationships", "tasks", "object") != "list" || rp.At("data", 0, "relationships", "tasks", "data", 1, "object") != "schedule_task" ||
-		!reflect.DeepEqual(rp.At("data", 0, "relationships", "tasks", "data", 1, "attributes"), wantTask) {
-		t.Errorf("tasks = %v", rp.At("data", 0, "relationships", "tasks"))
+	if rp.At("data", 0, "attributes", "relationships", "tasks", "object") != "list" || rp.At("data", 0, "attributes", "relationships", "tasks", "data", 1, "object") != "schedule_task" ||
+		!reflect.DeepEqual(rp.At("data", 0, "attributes", "relationships", "tasks", "data", 1, "attributes"), wantTask) {
+		t.Errorf("tasks = %v", rp.At("data", 0, "attributes", "relationships", "tasks"))
 	}
 
 	one := r.do(ada, "GET", "/1", "")
@@ -417,8 +417,8 @@ func TestCreate(t *testing.T) {
 	if rp.At("attributes", "is_active") != false || rp.At("attributes", "only_when_online") != false {
 		t.Errorf("flags = %v %v", rp.At("attributes", "is_active"), rp.At("attributes", "only_when_online"))
 	}
-	if rp.At("relationships", "tasks", "object") != "list" || rp.At("relationships", "tasks", "data") == nil {
-		t.Errorf("tasks = %v", rp.At("relationships"))
+	if rp.At("attributes", "relationships", "tasks", "object") != "list" || rp.At("attributes", "relationships", "tasks", "data") == nil {
+		t.Errorf("tasks = %v", rp.At("attributes", "relationships"))
 	}
 	if len(r.activity.entries) != 1 || r.activity.entries[0].Event != "server:schedule.create" || r.activity.entries[0].Properties != `{"name":"Weekly"}` ||
 		r.activity.entries[0].ScheduleID != 3 || r.activity.entries[0].ServerID != 100 || r.activity.entries[0].TaskID != 0 {
@@ -978,4 +978,16 @@ func TestTheLimitIsCheckedAgainWhereTheTasksAreLocked(t *testing.T) {
 	if len(r.activity.entries) != 0 || len(r.store.schedules[1].Tasks) != 2 {
 		t.Error("a task was added or logged")
 	}
+}
+
+// withoutKey is a copy of the attributes without one key, for comparing what an item says about itself apart from what it includes.
+func withoutKey(v any, key string) map[string]any {
+	m, _ := v.(map[string]any)
+	out := make(map[string]any, len(m))
+	for k, x := range m {
+		if k != key {
+			out[k] = x
+		}
+	}
+	return out
 }

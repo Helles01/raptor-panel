@@ -260,12 +260,12 @@ func TestListRefusals(t *testing.T) {
 func TestIncludes(t *testing.T) {
 	r := newRig(t)
 	rp := r.do(grace, "GET", "/7/allocations?include=node,server", "")
-	if rp.Status != 200 || rp.At("data", 0, "relationships", "node", "object") != "node" || rp.At("data", 0, "relationships", "node", "attributes", "name") != "node-7" {
+	if rp.Status != 200 || rp.At("data", 0, "attributes", "relationships", "node", "object") != "node" || rp.At("data", 0, "attributes", "relationships", "node", "attributes", "name") != "node-7" {
 		t.Fatalf("answer = %d %s", rp.Status, rp.Raw)
 	}
 	// The server of an allocation is its holder: shown to a key that may read servers, a null resource to one that may not.
-	if rp.At("data", 0, "relationships", "server", "object") != "server" {
-		t.Errorf("server = %v", rp.At("data", 0, "relationships", "server"))
+	if rp.At("data", 0, "attributes", "relationships", "server", "object") != "server" {
+		t.Errorf("server = %v", rp.At("data", 0, "attributes", "relationships", "server"))
 	}
 	if !r.store.lastLoad["node"] {
 		t.Errorf("load = %v", r.store.lastLoad)
@@ -273,7 +273,7 @@ func TestIncludes(t *testing.T) {
 
 	r = newRig(t)
 	rp = r.do(bob, "GET", "/7/allocations?include=node", "")
-	if rp.At("data", 0, "relationships", "node", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp.At("data", 0, "attributes", "relationships", "node", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }
@@ -413,17 +413,17 @@ func TestNewNeedsEverything(t *testing.T) {
 func TestTheServerOfAnAllocation(t *testing.T) {
 	r := newRig(t)
 	rp := r.do(grace, "GET", "/7/allocations?include=server", "")
-	if rp.Status != 200 || rp.At("data", 0, "relationships", "server", "object") != "server" || rp.At("data", 0, "relationships", "server", "attributes", "name") != "Survival" || !r.store.lastLoad["server"] {
+	if rp.Status != 200 || rp.At("data", 0, "attributes", "relationships", "server", "object") != "server" || rp.At("data", 0, "attributes", "relationships", "server", "attributes", "name") != "Survival" || !r.store.lastLoad["server"] {
 		t.Fatalf("answer = %d %s, load = %v", rp.Status, rp.Raw, r.store.lastLoad)
 	}
 	// A free allocation has no server: a null resource.
-	if rp.At("data", 1, "relationships", "server", "object") != "null_resource" {
-		t.Errorf("free = %v", rp.At("data", 1, "relationships"))
+	if rp.At("data", 1, "attributes", "relationships", "server", "object") != "null_resource" {
+		t.Errorf("free = %v", rp.At("data", 1, "attributes", "relationships"))
 	}
 	// A key that may not read servers gets a null resource, and the store is not asked.
 	r = newRig(t)
 	rp = r.do(bob, "GET", "/7/allocations?include=server", "")
-	if rp.At("data", 0, "relationships", "server", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
+	if rp.At("data", 0, "attributes", "relationships", "server", "object") != "null_resource" || len(r.store.lastLoad) != 0 {
 		t.Errorf("answer = %s, load = %v", rp.Raw, r.store.lastLoad)
 	}
 }

@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -61,4 +62,16 @@ func SenderFromSettings(get func(key string) string, password, hello string) (*S
 		return nil, err
 	}
 	return NewSender(o)
+}
+
+// SettingKeys are the settings OptionsFromSettings reads, for a store that has to fetch them.
+func SettingKeys() []string {
+	return []string{settingHost, settingPort, settingEncryption, settingUsername, settingFrom}
+}
+
+// Settings is where the panel keeps what it sends mail with.
+type Settings interface {
+	// Mail returns the values of the settings named by SettingKeys (a setting that is not set is missing from the map) and the password of the mail
+	// server, opened; the password is empty when none is stored.
+	Mail(ctx context.Context) (values map[string]string, password string, err error)
 }
