@@ -18,9 +18,9 @@ panel serves exactly the routes of the reference (`TestBuiltPanelServesTheRefere
 | 3 | `app.Build`, `raptor serve`, the commands registered | – | done (this page's date) |
 | 4 | A test MariaDB | – | done (MariaDB 11.8.9, `docs/testing-database.md`) |
 | 5 | Integration tests against that MariaDB | – | done for the stores and the whole panel; the host statements (14c) were checked by `dbhost create`/`test` in the first-installation test |
-| 6 | The test machine: WSL2 + Ubuntu LTS + Docker Engine + Wings v1.13.4 | **each install approved with its hash shown first** (WSL2, the Ubuntu image, Docker, the Wings binary) | next |
-| 7 | The test server through `POST /api/application/servers` with an application key | an `apikey create --application` | needs the node of step 6 (the panel tells the node after it stores the server) |
-| 8 | The eight criteria, each with a log in `docs/modules/milestone-1.md` | the browser (login with TOTP is a human step) | after 6 and 7 |
+| 6 | The test machine for a node: Linux + Docker Engine + Wings v1.13.4 | **not on this PC** (decided 2026-11-03): on the user's VPS, when it is ready; each install approved with its hash shown first (`versions.env` has the Wings hash and the Docker key fingerprint) | later, on the VPS |
+| 7 | The test server through `POST /api/application/servers` with an application key | an `apikey create --application` | needs the node of step 6 (the panel tells the node after it stores the server, and takes the server back if the node refuses) |
+| 8 | The eight criteria, each with a log in `docs/modules/milestone-1.md` | the browser (login with TOTP is a human step) | the ones that need no node can be done on this PC now (login, 2FA, server list from a row, schedules, subusers, settings); power, console, files, backups after 6 and 7 |
 
 ## The order on the test machine
 1. `raptor keygen` for the secrets key (kept in the environment, never in a file that is committed); `raptor db check` on the database, then `raptor db migrate` (Raptor's own additive migration, `raptor_secrets`).
