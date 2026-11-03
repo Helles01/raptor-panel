@@ -144,3 +144,39 @@ node's new token, its removal with the node, the release of a deleted server's a
 
 ## Still to do in the SQL layer (15 of 66)
 `allocapi`, `subuserapi`, `scheduleapi` and `schedules`, `backupapi`, `maintenance` and the small `ActivityLog` of each of those packages (and the `ActivityLog` of the database routes).
+
+## Seventh part (2026-11-03): the owner's routes, the scheduler and the housekeeping — the SQL layer is complete
+`store.ClientAllocations`, `ClientSubusers` (+ `SubuserOutbox`), `ClientSchedules`, `SchedulesStore` (the scheduler's), `ClientBackups`, the four `Maintenance*` stores and the seven small activity logs
+(`AllocationActivity`, `SubuserActivity`, `ScheduleActivity`, `BackupActivity`, `DatabaseActivity`, `FileActivity`, `SettingsActivity`), over `queries/owner.sql`. `TestEveryStoreHasAConstructor` (no database needed) reads
+`app.Stores` and `*store.DB` by reflection: **every store of the panel has a constructor that returns exactly its interface**, except the call to a node (`RemoteapiOldNodes`, made in `app.Build`) and the secret
+migration (`internal/db`). A store that is added to `app.Stores` without a constructor fails that test.
+
+- **Allocations.** A new one is a free allocation on the server's address, picked at random as in the reference, or a new one with the port the request chooses out of the ports the node has on that address. The
+  server's row is locked first, so the limit is checked against what the server has; the free ones are read with a lock over the node's allocations at that address, so **requests for one address take turns**
+  (a test of two servers that choose a port at the same moment found that this already prevents the same port being chosen twice, which is why there is no retry for it). `SetPrimary` and `Release` both lock the server
+  before the allocation: a test that runs them against each other keeps the primary allocation one the server holds. An empty note is stored as no note, as the reference turns empty text into null.
+- **Subusers** have no unique key on (server, user). `Add` locks the server's row and looks for the entry under it; of 12 requests at once for one person, one is made. A new account is made in the same transaction
+  (with its setup link); a taken user name or address is `ErrUsernameTaken`/`ErrEmailTaken` and nothing is stored. A change with `revoke` queues the order to the node in the same transaction.
+- **Schedules.** Tasks of a schedule are changed with the schedule's row and then its tasks locked (always in this order). A new task is placed by the handler's rule under the lock (of 14 requests at once for a
+  schedule that may have 5 tasks, 5 are made, with the places 1–5); moving a task shifts the ones in between; deleting one closes the gap. `Begin` is one conditional statement on `is_processing = 0` — a test found that
+  the first version of the check was satisfied by "no row changed" when the same values were written, so it now also tries a start with a *different* next time. A stored expression that cannot be read is left out of
+  `Due` (it has no next time) and is an error for a run by hand; `raptor audit` lists them.
+- **Backups.** `Start` locks the server's row, reads the backups that count (not failed, not deleted) and the creation times since `StartRequest.Since` (the start of the throttle window, which the service now passes;
+  zero when the throttle is off), asks the check, soft-deletes the backup it says to replace and inserts the new one, in one transaction. Delete is soft, as in the reference. The page is in the order of the ids.
+- **Housekeeping.** `FailOrphans` follows the reference (unfinished and old, not deleted; the lock flag is not touched — the comment of the interface said "a locked one is left alone", which was wrong and is fixed).
+  The activity log is deleted 5,000 rows at a time (a log of years is not cleared under one lock; its subjects go through the foreign key). Sessions are spent by `last_activity` or by the `created_at` of Raptor's payload,
+  compared as text to the second — so the session manager now writes it **in UTC** (`TestPayloadCreatedAtIsUTC`); a payload that is not Raptor's has no creation time and only the idle rule reaches it.
+- **Activity entries** have the server as a subject and the thing they are about as another (allocation, user, schedule and task, backup, database); the key a call came with is kept.
+
+**Two things the tests taught about this MariaDB.** (1) The test rig now empties `schedules`, `tasks` and `tasks_log` (schedules of an earlier test were due in the next). (2) The lock tests do not tell a missing
+`FOR UPDATE` from a present one on MariaDB 11.6.2+, because `innodb_snapshot_isolation` makes the loser of the race fail with 1020 and run again, which gives the right answer by itself. The same tests were run with
+`SET GLOBAL innodb_snapshot_isolation = OFF` (the behaviour of MariaDB 10.x and MySQL 8, which an old panel's database may have): the code passes, and the mutants without the locks fail (6 granted for a limit of 3).
+Do this again when a lock is touched.
+
+Tests: `clientalloc_` (5), `clientsubuser_` (3), `clientschedule_` (5), `clientbackup_` (4), `housekeeping_` (3), `activitylogs_` (1), `coverage_test.go`. Mutants killed: the server lock of the allocation limit, of the backup
+limit and of a new task's schedule (all three with snapshot isolation off), the primary check of a release, the server lock and the order of a subuser change, `is_processing = 0` of a start, the deleted-backup condition
+of the orphan job, `<` of the session age, both directions of a task move and the gap after a deletion.
+
+## Still to do
+The SQL layer is complete. Next: `app.Build` (needs adapters: `settingsapi.Reinstaller`, `remoteapi.OldNodes`, `clientapi.Texts`, the tokens, the session and CSRF wiring), the background jobs, `raptor serve`, the route-inventory
+test against the built handlers, then the Wings installation and the browser test.

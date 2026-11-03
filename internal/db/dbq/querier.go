@@ -7,6 +7,7 @@ package dbq
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 type Querier interface {
@@ -18,18 +19,27 @@ type Querier interface {
 	// A user's own account: e-mail, password, two-factor authentication, API keys and SSH keys.
 	AccountForSettings(ctx context.Context, id uint32) (AccountForSettingsRow, error)
 	AccountSSHKeys(ctx context.Context, userID uint32) ([]AccountSSHKeysRow, error)
+	AllocationIP(ctx context.Context, id uint32) (string, error)
 	AllocationsOfNodes(ctx context.Context, ids []uint32) ([]AllocationsOfNodesRow, error)
 	AllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]AllocationsOfServersRow, error)
 	AllowedMountsOfNode(ctx context.Context, nodeID uint32) ([]string, error)
 	// The allocations are given to the server only if they are still free; the caller compares the number of rows with the number it asked for.
 	AssignAllocations(ctx context.Context, arg AssignAllocationsParams) (int64, error)
+	AssignOneAllocation(ctx context.Context, arg AssignOneAllocationParams) (int64, error)
 	BackupOfNode(ctx context.Context, arg BackupOfNodeParams) (BackupOfNodeRow, error)
+	BackupStartTimes(ctx context.Context, arg BackupStartTimesParams) ([]sql.NullTime, error)
+	BeginScheduleRun(ctx context.Context, arg BeginScheduleRunParams) (int64, error)
+	ClearScheduleMarks(ctx context.Context) error
+	ClearScheduleProcessing(ctx context.Context, id uint32) error
+	ClearTaskMarks(ctx context.Context) error
 	ClearTwoFactor(ctx context.Context, id uint32) (int64, error)
 	ClientAllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]ClientAllocationsOfServersRow, error)
 	ClientVariablesOfServers(ctx context.Context, ids []uint32) ([]ClientVariablesOfServersRow, error)
+	CloseGapAfter(ctx context.Context, arg CloseGapAfterParams) error
 	// Only a backup that has not ended can be ended.
 	CompleteBackup(ctx context.Context, arg CompleteBackupParams) (int64, error)
 	CountAccountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
+	CountAllocationsOfServer(ctx context.Context, serverID sql.NullInt32) (int64, error)
 	CountDatabasesOfServer(ctx context.Context, serverID uint32) (int64, error)
 	CountDatabasesOnHost(ctx context.Context, databaseHostID uint32) (int64, error)
 	CountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
@@ -39,11 +49,13 @@ type Querier interface {
 	CountServerVariableRows(ctx context.Context, arg CountServerVariableRowsParams) (int64, error)
 	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
 	CountServersOnNode(ctx context.Context, nodeID uint32) (int64, error)
+	CountSubuserEntries(ctx context.Context, arg CountSubuserEntriesParams) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
 	DatabaseHostChoices(ctx context.Context) ([]DatabaseHostChoicesRow, error)
 	DatabaseHostExists(ctx context.Context, id uint32) (int64, error)
 	DatabaseIDsOfServer(ctx context.Context, serverID uint32) ([]uint32, error)
 	DeleteAPIKey(ctx context.Context, id uint32) error
+	DeleteActivityChunk(ctx context.Context, timestamp time.Time) (int64, error)
 	DeleteAllocation(ctx context.Context, id uint32) error
 	DeleteApplicationKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeleteApplicationKeysOfUser(ctx context.Context, userID uint32) error
@@ -57,15 +69,22 @@ type Querier interface {
 	// One use: only the request that deletes the row may use the token.
 	DeleteRecoveryToken(ctx context.Context, id uint64) (int64, error)
 	DeleteRecoveryTokensOfUser(ctx context.Context, userID uint32) error
+	DeleteResetTokensBefore(ctx context.Context, createdAt time.Time) (int64, error)
+	DeleteScheduleOfServer(ctx context.Context, arg DeleteScheduleOfServerParams) (int64, error)
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) error
 	DeleteSecretsOfRow(ctx context.Context, arg DeleteSecretsOfRowParams) error
 	DeleteServerRow(ctx context.Context, id uint32) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionsForUser(ctx context.Context, userID sql.NullInt32) error
 	DeleteSessionsForUserExcept(ctx context.Context, arg DeleteSessionsForUserExceptParams) error
+	// A session is spent when it was last used too long ago or, by the creation time its payload carries (UTC, to the second), is too old.
+	DeleteSpentSessions(ctx context.Context, arg DeleteSpentSessionsParams) (int64, error)
+	DeleteSubuserEntries(ctx context.Context, arg DeleteSubuserEntriesParams) error
+	DeleteTaskRow(ctx context.Context, arg DeleteTaskRowParams) error
 	DeleteUser(ctx context.Context, id uint32) (int64, error)
 	// Several processes may claim at once: a row that another transaction has locked is skipped, not waited for.
 	DueJobs(ctx context.Context, arg DueJobsParams) ([]DueJobsRow, error)
+	DueSchedules(ctx context.Context, nextRunAt sql.NullTime) ([]DueSchedulesRow, error)
 	EggImagesOfServer(ctx context.Context, id uint32) (sql.NullString, error)
 	EggNest(ctx context.Context, id uint32) (uint32, error)
 	EggVariablesForRules(ctx context.Context, eggID uint32) ([]EggVariablesForRulesRow, error)
@@ -76,8 +95,10 @@ type Querier interface {
 	// place in the index too and makes a concurrent request with the same value wait for this one.
 	ExternalIDHolders(ctx context.Context, arg ExternalIDHoldersParams) ([]uint32, error)
 	FailJob(ctx context.Context, arg FailJobParams) error
+	FailOrphanBackups(ctx context.Context, arg FailOrphanBackupsParams) (int64, error)
 	FingerprintsOfUser(ctx context.Context, userID uint32) ([]string, error)
 	FinishRestoreOfServer(ctx context.Context, arg FinishRestoreOfServerParams) (int64, error)
+	FinishScheduleRun(ctx context.Context, arg FinishScheduleRunParams) error
 	FinishTransfer(ctx context.Context, arg FinishTransferParams) error
 	GetSecret(ctx context.Context, arg GetSecretParams) (string, error)
 	GetSession(ctx context.Context, id string) (Session, error)
@@ -85,6 +106,8 @@ type Querier interface {
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (int64, error)
 	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) (int64, error)
 	InsertActivitySubject(ctx context.Context, arg InsertActivitySubjectParams) error
+	InsertAllocationFor(ctx context.Context, arg InsertAllocationForParams) (int64, error)
+	InsertBackup(ctx context.Context, arg InsertBackupParams) (int64, error)
 	// The password column is NOT NULL but holds nothing: the password is sealed in raptor_secrets.
 	InsertDatabase(ctx context.Context, arg InsertDatabaseParams) (int64, error)
 	InsertDatabaseHost(ctx context.Context, arg InsertDatabaseHostParams) (int64, error)
@@ -96,8 +119,11 @@ type Querier interface {
 	InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error
 	InsertRecoveryToken(ctx context.Context, arg InsertRecoveryTokenParams) error
 	InsertSSHKey(ctx context.Context, arg InsertSSHKeyParams) (int64, error)
+	InsertSchedule(ctx context.Context, arg InsertScheduleParams) (int64, error)
 	InsertServer(ctx context.Context, arg InsertServerParams) (int64, error)
 	InsertServerVariable(ctx context.Context, arg InsertServerVariableParams) error
+	InsertSubuser(ctx context.Context, arg InsertSubuserParams) error
+	InsertTask(ctx context.Context, arg InsertTaskParams) (int64, error)
 	// What the administrator's commands read and write: users, API keys, locations, nodes, nests, eggs, settings and database hosts.
 	InsertUser(ctx context.Context, arg InsertUserParams) (int64, error)
 	// The script that installs a server: the egg's own, or the one it copies from another egg.
@@ -114,7 +140,9 @@ type Querier interface {
 	LocationExists(ctx context.Context, id uint32) (int64, error)
 	LockAccountKey(ctx context.Context, arg LockAccountKeyParams) (LockAccountKeyRow, error)
 	LockAllocation(ctx context.Context, arg LockAllocationParams) (LockAllocationRow, error)
+	LockAllocationOfServer(ctx context.Context, arg LockAllocationOfServerParams) (uint32, error)
 	LockAllocationsByID(ctx context.Context, ids []uint32) ([]LockAllocationsByIDRow, error)
+	LockBackupOfServer(ctx context.Context, arg LockBackupOfServerParams) (uint64, error)
 	LockDatabase(ctx context.Context, id uint32) (uint32, error)
 	LockDatabaseHost(ctx context.Context, id uint32) (LockDatabaseHostRow, error)
 	LockDatabaseOfServer(ctx context.Context, arg LockDatabaseOfServerParams) (uint32, error)
@@ -122,12 +150,24 @@ type Querier interface {
 	LockNode(ctx context.Context, id uint32) (LockNodeRow, error)
 	LockOpenTransfer(ctx context.Context, serverID uint32) (LockOpenTransferRow, error)
 	LockSSHKey(ctx context.Context, arg LockSSHKeyParams) (LockSSHKeyRow, error)
+	LockScheduleOfServer(ctx context.Context, arg LockScheduleOfServerParams) (uint32, error)
+	LockScheduleRow(ctx context.Context, id uint32) (uint32, error)
 	// What a server's owner changes about it: its startup variables, its image and its name.
 	LockServer(ctx context.Context, id uint32) (uint32, error)
+	LockServerAllocationInfo(ctx context.Context, id uint32) (LockServerAllocationInfoRow, error)
+	LockServerBackupLimit(ctx context.Context, id uint32) (uint32, error)
 	LockServerDatabaseLimit(ctx context.Context, id uint32) (sql.NullInt32, error)
+	LockSubuserEntries(ctx context.Context, arg LockSubuserEntriesParams) ([]uint32, error)
+	LockTasksOfSchedule(ctx context.Context, scheduleID uint32) ([]LockTasksOfScheduleRow, error)
 	LockUser(ctx context.Context, id uint32) (uint32, error)
+	MakeRoomForTask(ctx context.Context, arg MakeRoomForTaskParams) error
+	MarkTaskQueued(ctx context.Context, arg MarkTaskQueuedParams) error
 	MountsOfServers(ctx context.Context, ids []uint32) ([]MountsOfServersRow, error)
 	MoveServer(ctx context.Context, arg MoveServerParams) error
+	// A task moves to a later place: the ones from just after its old place to there move one earlier.
+	MoveTasksEarlier(ctx context.Context, arg MoveTasksEarlierParams) error
+	// A task moves to an earlier place: the ones from there to just before its old place move one later.
+	MoveTasksLater(ctx context.Context, arg MoveTasksLaterParams) error
 	NestExists(ctx context.Context, id uint32) (int64, error)
 	NodeByTokenID(ctx context.Context, daemonTokenID string) (NodeByTokenIDRow, error)
 	NodeExists(ctx context.Context, id uint32) (int64, error)
@@ -135,9 +175,13 @@ type Querier interface {
 	NodeForDaemon(ctx context.Context, id uint32) (NodeForDaemonRow, error)
 	NodeOrigins(ctx context.Context) ([]NodeOriginsRow, error)
 	NodesOfUser(ctx context.Context, arg NodesOfUserParams) ([]uint32, error)
+	NonFailedBackups(ctx context.Context, serverID uint32) ([]NonFailedBackupsRow, error)
 	// The transfer that is still running, if any.
 	OpenTransferOfServer(ctx context.Context, serverID uint32) (OpenTransferOfServerRow, error)
 	PeopleByID(ctx context.Context, ids []uint32) ([]PeopleByIDRow, error)
+	// A free allocation on the server's address, at random as in the reference.
+	PickFreeAllocation(ctx context.Context, arg PickFreeAllocationParams) (uint32, error)
+	PortsOfNodeAddress(ctx context.Context, arg PortsOfNodeAddressParams) ([]uint32, error)
 	PutSession(ctx context.Context, arg PutSessionParams) error
 	RecoveryTokensForUser(ctx context.Context, userID uint32) ([]RecoveryTokensForUserRow, error)
 	ReleaseAllAllocationsOfServer(ctx context.Context, serverID sql.NullInt32) error
@@ -149,37 +193,51 @@ type Querier interface {
 	ResettableServersOfNode(ctx context.Context, nodeID uint32) ([]ResettableServersOfNodeRow, error)
 	RetryJob(ctx context.Context, arg RetryJobParams) error
 	SFTPServer(ctx context.Context, arg SFTPServerParams) (SFTPServerRow, error)
+	ScheduleForRun(ctx context.Context, id uint32) (ScheduleForRunRow, error)
+	ScheduleProgress(ctx context.Context, id uint32) (ScheduleProgressRow, error)
+	// What the owner of a server does with its allocations, subusers, schedules and backups, what the scheduler runs, and the housekeeping jobs.
+	ServerAllocationInfo(ctx context.Context, id uint32) (ServerAllocationInfoRow, error)
+	ServerBackupLimitOf(ctx context.Context, id uint32) (uint32, error)
 	ServerByShortUUID(ctx context.Context, uuidshort string) (ServerByShortUUIDRow, error)
 	ServerByUUID(ctx context.Context, uuid string) (ServerByUUIDRow, error)
 	ServerForNodeByUUID(ctx context.Context, uuid string) (ServerForNodeByUUIDRow, error)
 	ServerIDsOfNode(ctx context.Context, arg ServerIDsOfNodeParams) ([]ServerIDsOfNodeRow, error)
+	ServerNameOf(ctx context.Context, id uint32) (string, error)
 	ServerNodeAndUUID(ctx context.Context, id uint32) (ServerNodeAndUUIDRow, error)
 	// The servers a node holds, a page at a time, with what their configuration needs from the same row and from the node, the location and the egg
 	// (and the egg it takes its process configuration from, if any).
 	ServersOfNode(ctx context.Context, arg ServersOfNodeParams) ([]ServersOfNodeRow, error)
+	SetAllocationNotes(ctx context.Context, arg SetAllocationNotesParams) error
+	SetBackupLocked(ctx context.Context, arg SetBackupLockedParams) error
 	// The result of an installation is stored only if the server still has the status the report was made against.
 	SetInstallStatus(ctx context.Context, arg SetInstallStatusParams) (int64, error)
 	SetInstallStatusAndTime(ctx context.Context, arg SetInstallStatusAndTimeParams) (int64, error)
 	SetServerImage(ctx context.Context, arg SetServerImageParams) (int64, error)
+	SetServerPrimaryAllocation(ctx context.Context, arg SetServerPrimaryAllocationParams) error
 	SetUserEmail(ctx context.Context, arg SetUserEmailParams) (int64, error)
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) (int64, error)
 	SettingValue(ctx context.Context, key string) (string, error)
+	SoftDeleteBackup(ctx context.Context, arg SoftDeleteBackupParams) (int64, error)
 	// The reference deletes an SSH key softly, and so does this.
 	SoftDeleteSSHKey(ctx context.Context, arg SoftDeleteSSHKeyParams) error
 	SubuserPermissions(ctx context.Context, arg SubuserPermissionsParams) (sql.NullString, error)
 	SubusersOfServers(ctx context.Context, ids []uint32) ([]SubusersOfServersRow, error)
 	// What the node's API (Wings) and the control routes read and write about servers.
 	TargetOfServer(ctx context.Context, id uint32) (TargetOfServerRow, error)
+	TasksForRun(ctx context.Context, scheduleID uint32) ([]TasksForRunRow, error)
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
 	TouchDatabase(ctx context.Context, arg TouchDatabaseParams) error
 	UpdateDatabaseHost(ctx context.Context, arg UpdateDatabaseHostParams) error
 	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (int64, error)
 	UpdateNodeSettings(ctx context.Context, arg UpdateNodeSettingsParams) error
 	UpdateNodeTokenID(ctx context.Context, arg UpdateNodeTokenIDParams) error
+	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error
 	UpdateServerBuild(ctx context.Context, arg UpdateServerBuildParams) error
 	UpdateServerDetails(ctx context.Context, arg UpdateServerDetailsParams) error
 	UpdateServerStartup(ctx context.Context, arg UpdateServerStartupParams) error
 	UpdateServerVariable(ctx context.Context, arg UpdateServerVariableParams) (int64, error)
+	UpdateSubuserPermissions(ctx context.Context, arg UpdateSubuserPermissionsParams) error
+	UpdateTaskRow(ctx context.Context, arg UpdateTaskRowParams) error
 	// The Application API's writes of users, locations and allocations.
 	UpdateUserFields(ctx context.Context, arg UpdateUserFieldsParams) (int64, error)
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
@@ -195,6 +253,7 @@ type Querier interface {
 	UserEmail(ctx context.Context, id uint32) (string, error)
 	UserForSFTP(ctx context.Context, username string) (UserForSFTPRow, error)
 	UserIDsByUUID(ctx context.Context, uuids []string) ([]UserIDsByUUIDRow, error)
+	UserRefByEmail(ctx context.Context, email string) (UserRefByEmailRow, error)
 	UserUUID(ctx context.Context, id uint32) (string, error)
 	VariableOfEgg(ctx context.Context, arg VariableOfEggParams) (uint32, error)
 	VariableOfServer(ctx context.Context, arg VariableOfServerParams) (uint32, error)

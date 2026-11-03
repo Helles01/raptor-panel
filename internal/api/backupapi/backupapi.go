@@ -69,6 +69,9 @@ type NewBackup struct {
 type StartRequest struct {
 	ServerID uint64
 	Backup   NewBackup
+	// Since is the start of the throttle window: the creation times from then on are what Check is given. A zero Since means the throttle is off and
+	// Check gets none.
+	Since time.Time
 	// Check is called with the server's backup limit, the backups that count against it and the creation times of all the backups the
 	// server ever had in the throttle window (deleted ones too, so that deleting and starting again does not get round it). An error
 	// ends the request and is returned as it is; an admission that says Prune makes the store delete that backup first, in the same

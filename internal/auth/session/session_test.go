@@ -428,3 +428,16 @@ func TestRevokeOthersKeepsTheGivenSession(t *testing.T) {
 		t.Errorf("another user's session was ended: %v", err)
 	}
 }
+
+// The creation time is stored in UTC whatever zone the clock is in: the housekeeping job compares it as text in the database.
+func TestPayloadCreatedAtIsUTC(t *testing.T) {
+	m, store, c := newTestManager(t, true)
+	c.t = time.Date(2026, 10, 22, 14, 30, 5, 0, time.FixedZone("CEST", 2*60*60))
+	if _, err := m.Create(ctx, "198.51.100.7", "Mozilla/5.0"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := store.Get(ctx, store.Keys()[0])
+	if !strings.Contains(string(r.Payload), `"created_at":"2026-10-22T12:30:05Z"`) {
+		t.Errorf("payload = %s", r.Payload)
+	}
+}

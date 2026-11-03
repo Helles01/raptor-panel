@@ -144,3 +144,26 @@ func TestNewServiceNeedsEverything(t *testing.T) {
 		}
 	}
 }
+
+// The store is told where the throttle window starts, so that it reads only the creation times that count; with the throttle off it reads none.
+func TestServiceTellsTheStoreTheWindowOfTheThrottle(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.service(t).Start(context.Background(), 100, StartParams{Name: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := t0.Add(-600 * time.Second); !r.store.since.Equal(want) {
+		t.Errorf("window starts at %v, want %v", r.store.since, want)
+	}
+
+	r.store.limit = ptr(int64(50))
+	s, err := NewService(ServiceDeps{Store: r.store, Targets: r.targets, Daemon: r.daemon, ThrottlePeriod: 0, Logger: slog.New(slog.NewTextHandler(r.logs, nil)), Now: func() time.Time { return t0 }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Start(context.Background(), 100, StartParams{Name: "y"}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.store.since.IsZero() {
+		t.Errorf("with the throttle off the window starts at %v", r.store.since)
+	}
+}

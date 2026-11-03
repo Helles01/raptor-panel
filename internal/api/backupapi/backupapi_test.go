@@ -59,6 +59,7 @@ type store struct {
 	busy    bool // SetServerStatus answers false
 
 	starts   []NewBackup
+	since    time.Time // the start of the throttle window of the last request
 	locked   map[uint64]bool
 	deleted  []uint64
 	statuses [][2]string
@@ -107,6 +108,7 @@ func (s *store) Start(_ context.Context, r StartRequest) (Started, error) {
 			existing = append(existing, backups.Existing{ID: x.ID, CreatedAt: x.CreatedAt, Locked: x.Locked})
 		}
 	}
+	s.since = r.Since
 	admission, err := r.Check(s.limit, existing, s.ledger)
 	if err != nil {
 		return Started{}, err

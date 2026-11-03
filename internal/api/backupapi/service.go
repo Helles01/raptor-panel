@@ -68,6 +68,7 @@ func (s *Service) Start(ctx context.Context, serverID uint64, p StartParams) (Re
 	}
 	started, err := s.d.Store.Start(ctx, StartRequest{
 		ServerID: serverID,
+		Since:    s.throttleSince(),
 		Backup:   NewBackup{UUID: uuid, Name: p.Name, Disk: backups.DiskWings, Ignored: p.Ignored, Locked: p.Locked},
 		Check: func(limit *int64, existing []backups.Existing, startedAt []time.Time) (backups.Admission, error) {
 			if err := backups.Throttle(startedAt, s.d.Now(), s.d.ThrottleLimit, s.d.ThrottlePeriod); err != nil {
@@ -99,4 +100,12 @@ func (s *Service) Start(ctx context.Context, serverID uint64, p StartParams) (Re
 		return Record{}, err
 	}
 	return rec, nil
+}
+
+// throttleSince is the start of the window the throttle counts in, or the zero time when it is off.
+func (s *Service) throttleSince() time.Time {
+	if s.d.ThrottlePeriod <= 0 {
+		return time.Time{}
+	}
+	return s.d.Now().Add(-s.d.ThrottlePeriod)
 }

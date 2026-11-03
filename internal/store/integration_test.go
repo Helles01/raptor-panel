@@ -82,7 +82,7 @@ func newRigFK(t *testing.T, fk bool) *rig {
 	}
 	r := &rig{t: t, fk: fk, sql: sqlDB, box: box, db: s, ctx: ctx}
 	r.truncate("users", "api_keys", "servers", "nodes", "subusers", "settings", "sessions", "password_resets", "recovery_tokens", "activity_logs", "activity_log_subjects", "server_transfers", "raptor_secrets", "raptor_outbox",
-		"allocations", "locations", "nests", "eggs", "egg_variables", "database_hosts", "databases", "server_variables", "mounts", "mount_server", "backups", "user_ssh_keys")
+		"allocations", "locations", "nests", "eggs", "egg_variables", "database_hosts", "databases", "server_variables", "mounts", "mount_server", "backups", "user_ssh_keys", "schedules", "tasks", "tasks_log")
 	return r
 }
 
@@ -98,6 +98,9 @@ func (r *rig) truncate(tables ...string) {
 		r.t.Fatal(err)
 	}
 	for _, table := range tables {
+		if r.untouched(conn, table) {
+			continue
+		}
 		if _, err := conn.ExecContext(r.ctx, "TRUNCATE TABLE `"+table+"`"); err != nil {
 			r.t.Fatalf("truncate %s: %v", table, err)
 		}
@@ -109,6 +112,19 @@ func (r *rig) truncate(tables ...string) {
 	if _, err := conn.ExecContext(r.ctx, restore); err != nil {
 		r.t.Fatal(err)
 	}
+}
+
+// untouched says whether a table has no row and has never had one (its counter is at the start), which is what TRUNCATE would leave it as: truncating the ones that are
+// not is most of the time a test spends setting up, so they are left alone.
+func (r *rig) untouched(conn *sql.Conn, table string) bool {
+	var next sql.NullInt64
+	err := conn.QueryRowContext(r.ctx, "SELECT auto_increment FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", table).Scan(&next)
+	if err != nil || next.Valid && next.Int64 > 1 {
+		return false
+	}
+	var any int
+	err = conn.QueryRowContext(r.ctx, "SELECT 1 FROM `"+table+"` LIMIT 1").Scan(&any)
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 func (r *rig) exec(q string, args ...any) {

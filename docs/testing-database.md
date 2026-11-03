@@ -9,7 +9,7 @@ Installed 2026-11-03, with the approval of the project owner, for the integratio
 | Network | `127.0.0.1:3306` only |
 | Accounts | `root` (password in `.raptor-test.env`) and `raptor_test`, which has all rights on the database `raptor_test` and nothing else. The passwords were generated at install time and are only in `.raptor-test.env`, which is in `.gitignore` |
 | Run | `powershell -File scripts\testdb.ps1 start` (also `stop`, `status`); after a reboot it has to be started again |
-| Tests | `export RAPTOR_TEST_DSN="$(grep '^RAPTOR_TEST_DSN=' .raptor-test.env \| cut -d= -f2-)"` then `go test -tags integration -p 1 ./internal/db ./internal/store` (`-p 1`: the packages share one database and must not run at the same time) |
+| Tests | `export RAPTOR_TEST_DSN="$(grep '^RAPTOR_TEST_DSN=' .raptor-test.env \| cut -d= -f2-)"` then `go test -tags integration -p 1 -timeout 30m ./internal/db ./internal/store ./cmd/raptor` (`-p 1`: the packages share one database and must not run at the same time; `-timeout`: the store suite takes about 3 minutes and Go stops a test binary after 10 by default). The rig does not truncate a table that has no row and never had one, which is most of what a test would spend on setting up. |
 
 Removing it: stop it, delete the two folders and `.raptor-test.env`.
 

@@ -34,7 +34,7 @@ type Job struct {
 // BackupStore marks backups that never reported.
 type BackupStore interface {
 	// FailOrphans marks every backup that has no end time and was created before the given time as failed, finished now, and returns how
-	// many it marked. A backup that is done is left alone, and so is one that is locked: only the flags of an unfinished one change.
+	// many it marked. A backup that is done is left alone, and so is one that was deleted; the lock of an unfinished one is not touched.
 	FailOrphans(ctx context.Context, createdBefore, now time.Time) (int64, error)
 }
 

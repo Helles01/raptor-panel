@@ -46,5 +46,5 @@ they are one table each and can share one implementation behind small adapters.
 5. Integration tests against a real MariaDB: the conditional updates (two requests at once), the transactions with locks, the host statements (14c).
 
 ## Done so far (2026-11-03)
-51 of the 66 interfaces are implemented in `internal/store` and tested on a real MariaDB: the authorizer (6), sessions (1), sign-in (6), pages (3), outbox (3) and the
-node/user lookups they need, the four of the administrator, the eight of the control routes and the node API (see the note), the client, account and settings stores, and the Application API (users, locations, allocations, nests, nodes, servers and the databases of a server). See `modules/20a-sql-first-stores.md` for what is left.
+All the stores of `app.Stores` are implemented in `internal/store` and tested on a real MariaDB (`TestEveryStoreHasAConstructor` checks the list; the call to a node and the secret migration are made elsewhere): the authorizer (6), sessions (1), sign-in (6), pages (3), outbox (3) and the
+node/user lookups they need, the four of the administrator, the eight of the control routes and the node API (see the note), the client, account and settings stores, the Application API (users, locations, allocations, nests, nodes, servers and the databases of a server), and the owner's allocations, subusers, schedules and backups with the scheduler and the housekeeping jobs. See `modules/20a-sql-first-stores.md`.

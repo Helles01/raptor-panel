@@ -150,7 +150,8 @@ func (m *Manager) create(ctx context.Context, userID uint64, ip, userAgent strin
 }
 
 func (m *Manager) write(ctx context.Context, s *Session) error {
-	p, err := json.Marshal(payload{CreatedAt: s.CreatedAt, Confirmation: s.Confirmation})
+	// In UTC, so that the housekeeping job can compare the creation time as text in the database.
+	p, err := json.Marshal(payload{CreatedAt: s.CreatedAt.UTC(), Confirmation: s.Confirmation})
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
