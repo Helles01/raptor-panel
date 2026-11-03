@@ -42,3 +42,5 @@ h
 # Frontend build output (web/)
 /web/public/assets/*
 !/web/public/assets/.gitkeep
+# Credentials of the local test database (never committed)
+.raptor-test.env
