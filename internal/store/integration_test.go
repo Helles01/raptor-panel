@@ -33,13 +33,18 @@ import (
 
 type rig struct {
 	t   *testing.T
+	fk  bool
 	sql *sql.DB
 	box *secrets.Box
 	db  *store.DB
 	ctx context.Context
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigFK(t, false) }
+
+// newRigFK is newRig with the foreign key checks of the database on (fk) or off. Off, a row can point at rows that are not made, which keeps the fixtures of
+// most tests short; on, the cascades and the refusals of the database are part of what is tested.
+func newRigFK(t *testing.T, fk bool) *rig {
 	t.Helper()
 	dsn := os.Getenv("RAPTOR_TEST_DSN")
 	if dsn == "" {
@@ -50,7 +55,11 @@ func newRig(t *testing.T) *rig {
 	if strings.Contains(dsn, "?") {
 		sep = "&"
 	}
-	sqlDB, err := sql.Open("mysql", dsn+sep+"foreign_key_checks=0&loc=UTC")
+	params := "loc=UTC"
+	if !fk {
+		params += "&foreign_key_checks=0"
+	}
+	sqlDB, err := sql.Open("mysql", dsn+sep+params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +80,35 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{t: t, sql: sqlDB, box: box, db: s, ctx: ctx}
-	for _, table := range []string{"users", "api_keys", "servers", "nodes", "subusers", "settings", "sessions", "password_resets", "recovery_tokens", "activity_logs", "activity_log_subjects", "server_transfers", "raptor_secrets", "raptor_outbox"} {
-		r.exec("TRUNCATE TABLE `" + table + "`")
-	}
+	r := &rig{t: t, fk: fk, sql: sqlDB, box: box, db: s, ctx: ctx}
+	r.truncate("users", "api_keys", "servers", "nodes", "subusers", "settings", "sessions", "password_resets", "recovery_tokens", "activity_logs", "activity_log_subjects", "server_transfers", "raptor_secrets", "raptor_outbox",
+		"allocations", "locations", "nests", "eggs", "egg_variables", "database_hosts", "databases")
 	return r
+}
+
+// truncate empties tables whatever points at them: the checks are off on the one connection that does it, and back at what the pool has before it goes back.
+func (r *rig) truncate(tables ...string) {
+	r.t.Helper()
+	conn, err := r.sql.Conn(r.ctx)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(r.ctx, "SET FOREIGN_KEY_CHECKS = 0"); err != nil {
+		r.t.Fatal(err)
+	}
+	for _, table := range tables {
+		if _, err := conn.ExecContext(r.ctx, "TRUNCATE TABLE `"+table+"`"); err != nil {
+			r.t.Fatalf("truncate %s: %v", table, err)
+		}
+	}
+	restore := "SET FOREIGN_KEY_CHECKS = 0"
+	if r.fk {
+		restore = "SET FOREIGN_KEY_CHECKS = 1"
+	}
+	if _, err := conn.ExecContext(r.ctx, restore); err != nil {
+		r.t.Fatal(err)
+	}
 }
 
 func (r *rig) exec(q string, args ...any) {

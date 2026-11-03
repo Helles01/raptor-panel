@@ -35,3 +35,17 @@ delete, the order of the latest link, `SKIP LOCKED`, the state filter of the cla
 ## Still to do in the SQL layer
 `clientapi` (3 interfaces), `accountapi` (13), `controlapi.Targets`, `remoteapi` (the node API, 10 + 8), `settingsapi`, the Application API stores (about 45 methods), `admin.Store` and the CLI
 registration, `allocapi`, `subuserapi`, `scheduleapi`/`schedules`, `backupapi`, `databaseapi`, `maintenance`. For the first test: `clientapi`, `controlapi`, `remoteapi`, `admin.Store` and the stores the Application API needs to create a server.
+
+## Second part (2026-11-03): the administrator's commands, now registered
+`store.AdminStore`, `AdminDirectory`, `AdminHosts` and `DBHostLookup` (4 more interfaces, 26 of 66 in all), over `internal/db/queries/admin.sql`; and the commands themselves are now in the
+program: `raptor user|apikey|location|node|nest|egg|settings|dbhost …` (`cmd/raptor/cmd_admin.go`). They read the configuration from `RAPTOR_CONFIG` and the `RAPTOR_*` variables (needed:
+the database, `RAPTOR_SECRET_KEY`, `RAPTOR_APP_URL`); help and a mistyped name need no database.
+
+- A user, a key, a node, a nest and an egg are made the way the sign-in and the authorizer read them: a test creates each through the command and then asks the authorizer's own store for it
+  (the key found by its identifier with the hash of the secret the command showed; the node found by the token id, with the token that is in the configuration the command printed).
+- The count of a user's keys and of their servers is taken with the user's row locked (`SELECT … FOR UPDATE`): 40 requests at once make exactly 25 keys.
+- Deleting a user, a key or a host removes its sealed secrets in the same transaction; the database's cascades (keys, recovery tokens, subusers) are tested with foreign keys **on**.
+- The egg's `docker_images` keeps the order of the file; `field_type` of an egg file's variables has no column in the schema and is ignored (the open point of 01b is closed).
+- `dbhost create` really signs in: the end-to-end test points it at the test database itself; a wrong password gives MariaDB error 1045 and saves nothing. This is the first run of `MySQLDialer` against a real server.
+
+Tests: `internal/store/admin_integration_test.go` (6 tests), `cmd/raptor/cmd_admin_integration_test.go` (the whole first installation in one test, 7 steps) and `cmd/raptor/cmd_admin_test.go`.

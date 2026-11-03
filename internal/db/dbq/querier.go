@@ -11,13 +11,26 @@ import (
 
 type Querier interface {
 	APIKeyByIdentifier(ctx context.Context, identifier sql.NullString) (APIKeyByIdentifierRow, error)
+	APIKeyForRevoke(ctx context.Context, identifier sql.NullString) (APIKeyForRevokeRow, error)
+	ClearTwoFactor(ctx context.Context, id uint32) (int64, error)
+	CountDatabasesOnHost(ctx context.Context, databaseHostID uint32) (int64, error)
+	CountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
+	CountOwnedServers(ctx context.Context, ownerID uint32) (int64, error)
+	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
+	DeleteAPIKey(ctx context.Context, id uint32) error
+	DeleteDatabaseHost(ctx context.Context, id uint32) (int64, error)
 	DeleteJob(ctx context.Context, id uint64) error
+	DeleteKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeletePasswordResets(ctx context.Context, email string) (int64, error)
 	// One use: only the request that deletes the row may use the token.
 	DeleteRecoveryToken(ctx context.Context, id uint64) (int64, error)
+	DeleteRecoveryTokensOfUser(ctx context.Context, userID uint32) error
+	DeleteSecret(ctx context.Context, arg DeleteSecretParams) error
+	DeleteSecretsOfRow(ctx context.Context, arg DeleteSecretsOfRowParams) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionsForUser(ctx context.Context, userID sql.NullInt32) error
 	DeleteSessionsForUserExcept(ctx context.Context, arg DeleteSessionsForUserExceptParams) error
+	DeleteUser(ctx context.Context, id uint32) (int64, error)
 	// Several processes may claim at once: a row that another transaction has locked is skipped, not waited for.
 	DueJobs(ctx context.Context, arg DueJobsParams) ([]DueJobsRow, error)
 	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
@@ -25,12 +38,31 @@ type Querier interface {
 	FailJob(ctx context.Context, arg FailJobParams) error
 	GetSecret(ctx context.Context, arg GetSecretParams) (string, error)
 	GetSession(ctx context.Context, id string) (Session, error)
+	// The token column is not null and means the old encrypted secret; a key made here has none, its hash is in raptor_secrets.
+	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (int64, error)
 	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) (int64, error)
 	InsertActivitySubject(ctx context.Context, arg InsertActivitySubjectParams) error
+	InsertDatabaseHost(ctx context.Context, arg InsertDatabaseHostParams) (int64, error)
+	InsertEgg(ctx context.Context, arg InsertEggParams) (int64, error)
+	InsertEggVariable(ctx context.Context, arg InsertEggVariableParams) error
+	InsertLocation(ctx context.Context, arg InsertLocationParams) (int64, error)
+	InsertNest(ctx context.Context, arg InsertNestParams) (int64, error)
+	InsertNode(ctx context.Context, arg InsertNodeParams) (int64, error)
 	InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error
+	// What the administrator's commands read and write: users, API keys, locations, nodes, nests, eggs, settings and database hosts.
+	InsertUser(ctx context.Context, arg InsertUserParams) (int64, error)
 	LatestPasswordReset(ctx context.Context, email string) (LatestPasswordResetRow, error)
 	LeaseJob(ctx context.Context, arg LeaseJobParams) error
+	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error)
+	ListDatabaseHosts(ctx context.Context) ([]ListDatabaseHostsRow, error)
+	ListLocations(ctx context.Context) ([]ListLocationsRow, error)
+	ListNodes(ctx context.Context) ([]ListNodesRow, error)
 	ListSecretHashes(ctx context.Context, arg ListSecretHashesParams) ([]ListSecretHashesRow, error)
+	ListUsers(ctx context.Context) ([]ListUsersRow, error)
+	LocationExists(ctx context.Context, id uint32) (int64, error)
+	LockDatabaseHost(ctx context.Context, id uint32) (LockDatabaseHostRow, error)
+	LockUser(ctx context.Context, id uint32) (uint32, error)
+	NestExists(ctx context.Context, id uint32) (int64, error)
 	NodeByTokenID(ctx context.Context, daemonTokenID string) (NodeByTokenIDRow, error)
 	NodeForDaemon(ctx context.Context, id uint32) (NodeForDaemonRow, error)
 	NodeOrigins(ctx context.Context) ([]NodeOriginsRow, error)
@@ -44,7 +76,9 @@ type Querier interface {
 	SettingValue(ctx context.Context, key string) (string, error)
 	SubuserPermissions(ctx context.Context, arg SubuserPermissionsParams) (sql.NullString, error)
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
+	UpdateDatabaseHost(ctx context.Context, arg UpdateDatabaseHostParams) error
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
+	UpsertSetting(ctx context.Context, arg UpsertSettingParams) error
 	// A code of a step that is not later than the last one used is refused: the update changes a row only when it is.
 	UseTOTPStep(ctx context.Context, arg UseTOTPStepParams) (int64, error)
 	UserByEmail(ctx context.Context, email string) (UserByEmailRow, error)
