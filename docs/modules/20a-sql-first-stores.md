@@ -72,3 +72,29 @@ the inheritance of the egg and of the script, the move and the release of a tran
 `clientapi` (6 methods), `accountapi` (13), `settingsapi`, the Application API (appusers, applocations, appnodes, appallocs, appnests, appservers, appserverdbs: about 45 methods), `allocapi`, `subuserapi`, `scheduleapi`/`schedules`,
 `backupapi`, `databaseapi`, `maintenance`, `secretmigration` (done earlier). For the first test the next ones are `clientapi` (the server list and details in the browser), `accountapi` (two-factor setup) and the Application API
 for creating a server.
+
+## Fourth part (2026-11-03): the client API, the account and the server settings
+`store.ClientAccounts`, `ClientServers`, `ClientActivity`, `AccountStore`, `AccountNodes`, `AccountActivity`, `SettingsStore` (7 more interfaces, 41 of 66), over `client.sql`, `account.sql`
+and `settings.sql`, and the two **dynamic** queries of the client API (`internal/store/client.go`).
+
+- **The server list is built from the specs, never from the request.** The scope of the viewer (accessible / owner / admin-others / all / none) is a fixed condition; the filters and the order come from
+  `listquery` (`Query.Where()` and `OrderBy("id")`), whose column names are an allow-list and whose values are arguments. A test sends `x' OR '1'='1`, `'; DROP TABLE servers; --`, `%` and `_` as filter values and finds no
+  server and loses none. The row carries the permissions of the **viewer** as a subuser of that server (a join on the viewer, not on any subuser: a test has the owner of a server whose subuser is somebody
+  else see no permissions).
+- **`ScopeAdminOthers`** is what an administrator reaches only as an administrator: not their own, and not the ones they are a subuser of.
+- **Activity lists** are by subject (`activity_log_subjects`, an `EXISTS` so that a subject listed twice does not repeat an entry), without the events no list shows, with the filter, the order, the pages, and
+  the people behind the entries loaded in one query. `hide_admin_activity` hides an administrator's entries on a server unless they own it or are a subuser of it.
+- **The account**: a new address deletes the reset links of the old one in the same transaction (and an address that is taken changes nothing, links included); a new password deletes the links of the account's
+  address; a new two-factor secret is sealed in `raptor_secrets` (never in the old column) and forgets the last used code; switching it on replaces the recovery tokens and records the code that did it so it cannot
+  sign in again; the key limit counts the **account** keys only, with the user's row locked (40 requests at once make exactly 25); an SSH key is removed softly, as in the reference, and adding the same
+  fingerprint twice is refused even for 10 requests at once.
+- **The server settings**: a variable's row is made once whatever the number of requests (server row locked; the rows are counted because an update that finds the same value changes no row); the status
+  changes only from the status the change was made against; the egg's images keep the order of the egg.
+
+Tests: `client_integration_test.go` (6), `account_integration_test.go` (9), `settings_integration_test.go` (1). Mutants killed: every scope condition, the hide-administrators rule and its exception for the owner and
+the subusers, the subject type of the activity lists, the exclusion of events, both offsets, the open-transfer filter, the viewer join, the reset links of an address change and of a password change, the lock
+of the key limit, the type of key in the three key queries, the soft-deleted SSH keys, the old recovery tokens, the forgotten code.
+
+## Still to do in the SQL layer (25 of 66)
+The Application API (appusers, applocations, appnodes, appallocs, appnests, appservers, appserverdbs: about 45 methods, needed to create the test server), `allocapi`, `subuserapi`, `scheduleapi` and `schedules`,
+`backupapi`, `databaseapi`, `maintenance`, and the small `ActivityLog` of each of those packages.

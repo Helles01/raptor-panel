@@ -12,14 +12,25 @@ import (
 type Querier interface {
 	APIKeyByIdentifier(ctx context.Context, identifier sql.NullString) (APIKeyByIdentifierRow, error)
 	APIKeyForRevoke(ctx context.Context, identifier sql.NullString) (APIKeyForRevokeRow, error)
+	AccountAPIKeys(ctx context.Context, userID uint32) ([]AccountAPIKeysRow, error)
+	// What the client API reads: the account, the allocations, variables and subusers of servers, and the people behind activity entries.
+	AccountByID(ctx context.Context, id uint32) (AccountByIDRow, error)
+	// A user's own account: e-mail, password, two-factor authentication, API keys and SSH keys.
+	AccountForSettings(ctx context.Context, id uint32) (AccountForSettingsRow, error)
+	AccountSSHKeys(ctx context.Context, userID uint32) ([]AccountSSHKeysRow, error)
 	AllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]AllocationsOfServersRow, error)
 	BackupOfNode(ctx context.Context, arg BackupOfNodeParams) (BackupOfNodeRow, error)
 	ClearTwoFactor(ctx context.Context, id uint32) (int64, error)
+	ClientAllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]ClientAllocationsOfServersRow, error)
+	ClientVariablesOfServers(ctx context.Context, ids []uint32) ([]ClientVariablesOfServersRow, error)
 	// Only a backup that has not ended can be ended.
 	CompleteBackup(ctx context.Context, arg CompleteBackupParams) (int64, error)
+	CountAccountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
 	CountDatabasesOnHost(ctx context.Context, databaseHostID uint32) (int64, error)
 	CountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
 	CountOwnedServers(ctx context.Context, ownerID uint32) (int64, error)
+	CountSSHKeysWithFingerprint(ctx context.Context, arg CountSSHKeysWithFingerprintParams) (int64, error)
+	CountServerVariableRows(ctx context.Context, arg CountServerVariableRowsParams) (int64, error)
 	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
 	DeleteAPIKey(ctx context.Context, id uint32) error
@@ -38,6 +49,8 @@ type Querier interface {
 	DeleteUser(ctx context.Context, id uint32) (int64, error)
 	// Several processes may claim at once: a row that another transaction has locked is skipped, not waited for.
 	DueJobs(ctx context.Context, arg DueJobsParams) ([]DueJobsRow, error)
+	EggImagesOfServer(ctx context.Context, id uint32) (sql.NullString, error)
+	EnableTwoFactor(ctx context.Context, arg EnableTwoFactorParams) (int64, error)
 	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) error
 	FailJob(ctx context.Context, arg FailJobParams) error
@@ -57,6 +70,9 @@ type Querier interface {
 	InsertNest(ctx context.Context, arg InsertNestParams) (int64, error)
 	InsertNode(ctx context.Context, arg InsertNodeParams) (int64, error)
 	InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error
+	InsertRecoveryToken(ctx context.Context, arg InsertRecoveryTokenParams) error
+	InsertSSHKey(ctx context.Context, arg InsertSSHKeyParams) (int64, error)
+	InsertServerVariable(ctx context.Context, arg InsertServerVariableParams) error
 	// What the administrator's commands read and write: users, API keys, locations, nodes, nests, eggs, settings and database hosts.
 	InsertUser(ctx context.Context, arg InsertUserParams) (int64, error)
 	// The script that installs a server: the egg's own, or the one it copies from another egg.
@@ -71,8 +87,12 @@ type Querier interface {
 	ListSecretHashes(ctx context.Context, arg ListSecretHashesParams) ([]ListSecretHashesRow, error)
 	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	LocationExists(ctx context.Context, id uint32) (int64, error)
+	LockAccountKey(ctx context.Context, arg LockAccountKeyParams) (LockAccountKeyRow, error)
 	LockDatabaseHost(ctx context.Context, id uint32) (LockDatabaseHostRow, error)
 	LockOpenTransfer(ctx context.Context, serverID uint32) (LockOpenTransferRow, error)
+	LockSSHKey(ctx context.Context, arg LockSSHKeyParams) (LockSSHKeyRow, error)
+	// What a server's owner changes about it: its startup variables, its image and its name.
+	LockServer(ctx context.Context, id uint32) (uint32, error)
 	LockUser(ctx context.Context, id uint32) (uint32, error)
 	MountsOfServers(ctx context.Context, ids []uint32) ([]MountsOfServersRow, error)
 	MoveServer(ctx context.Context, arg MoveServerParams) error
@@ -83,10 +103,13 @@ type Querier interface {
 	NodesOfUser(ctx context.Context, arg NodesOfUserParams) ([]uint32, error)
 	// The transfer that is still running, if any.
 	OpenTransferOfServer(ctx context.Context, serverID uint32) (OpenTransferOfServerRow, error)
+	PeopleByID(ctx context.Context, ids []uint32) ([]PeopleByIDRow, error)
 	PutSession(ctx context.Context, arg PutSessionParams) error
 	RecoveryTokensForUser(ctx context.Context, userID uint32) ([]RecoveryTokensForUserRow, error)
 	ReleaseAllocations(ctx context.Context, ids []uint32) error
+	RenameServer(ctx context.Context, arg RenameServerParams) (int64, error)
 	ResetServerStatus(ctx context.Context, arg ResetServerStatusParams) (int64, error)
+	ResetTotpAuthentication(ctx context.Context, id uint32) error
 	ResettableServersOfNode(ctx context.Context, nodeID uint32) ([]ResettableServersOfNodeRow, error)
 	RetryJob(ctx context.Context, arg RetryJobParams) error
 	SFTPServer(ctx context.Context, arg SFTPServerParams) (SFTPServerRow, error)
@@ -100,13 +123,19 @@ type Querier interface {
 	// The result of an installation is stored only if the server still has the status the report was made against.
 	SetInstallStatus(ctx context.Context, arg SetInstallStatusParams) (int64, error)
 	SetInstallStatusAndTime(ctx context.Context, arg SetInstallStatusAndTimeParams) (int64, error)
+	SetServerImage(ctx context.Context, arg SetServerImageParams) (int64, error)
+	SetUserEmail(ctx context.Context, arg SetUserEmailParams) (int64, error)
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) (int64, error)
 	SettingValue(ctx context.Context, key string) (string, error)
+	// The reference deletes an SSH key softly, and so does this.
+	SoftDeleteSSHKey(ctx context.Context, arg SoftDeleteSSHKeyParams) error
 	SubuserPermissions(ctx context.Context, arg SubuserPermissionsParams) (sql.NullString, error)
+	SubusersOfServers(ctx context.Context, ids []uint32) ([]SubusersOfServersRow, error)
 	// What the node's API (Wings) and the control routes read and write about servers.
 	TargetOfServer(ctx context.Context, id uint32) (TargetOfServerRow, error)
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
 	UpdateDatabaseHost(ctx context.Context, arg UpdateDatabaseHostParams) error
+	UpdateServerVariable(ctx context.Context, arg UpdateServerVariableParams) (int64, error)
 	UpsertSecret(ctx context.Context, arg UpsertSecretParams) error
 	UpsertSetting(ctx context.Context, arg UpsertSettingParams) error
 	// A code of a step that is not later than the last one used is refused: the update changes a row only when it is.
@@ -116,9 +145,11 @@ type Querier interface {
 	UserByID(ctx context.Context, id uint32) (UserByIDRow, error)
 	// The columns use utf8mb4_unicode_ci, so a name and an address are compared without regard to case.
 	UserByUsername(ctx context.Context, username string) (UserByUsernameRow, error)
+	UserEmail(ctx context.Context, id uint32) (string, error)
 	UserForSFTP(ctx context.Context, username string) (UserForSFTPRow, error)
 	UserIDsByUUID(ctx context.Context, uuids []string) ([]UserIDsByUUIDRow, error)
 	UserUUID(ctx context.Context, id uint32) (string, error)
+	VariableOfServer(ctx context.Context, arg VariableOfServerParams) (uint32, error)
 	VariablesOfServers(ctx context.Context, ids []uint32) ([]VariablesOfServersRow, error)
 }
 

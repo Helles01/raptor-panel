@@ -82,7 +82,7 @@ func newRigFK(t *testing.T, fk bool) *rig {
 	}
 	r := &rig{t: t, fk: fk, sql: sqlDB, box: box, db: s, ctx: ctx}
 	r.truncate("users", "api_keys", "servers", "nodes", "subusers", "settings", "sessions", "password_resets", "recovery_tokens", "activity_logs", "activity_log_subjects", "server_transfers", "raptor_secrets", "raptor_outbox",
-		"allocations", "locations", "nests", "eggs", "egg_variables", "database_hosts", "databases")
+		"allocations", "locations", "nests", "eggs", "egg_variables", "database_hosts", "databases", "server_variables", "mounts", "mount_server", "backups", "user_ssh_keys")
 	return r
 }
 
