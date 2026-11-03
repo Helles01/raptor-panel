@@ -148,3 +148,42 @@ func TestSecretStoreEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// InitBaseline needs a database with none of the panel's tables; it drops the ones it makes first, so point RAPTOR_TEST_DSN at a database that is
+// only for tests.
+func TestInitBaseline(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTestDB(t)
+
+	if _, err := sqlDB.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0"); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range db.BaselineTables() {
+		if _, err := sqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS `"+table+"`"); err != nil {
+			t.Fatalf("drop %s: %v", table, err)
+		}
+	}
+	if _, err := sqlDB.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1"); err != nil {
+		t.Fatal(err)
+	}
+
+	made, err := db.InitBaseline(ctx, sqlDB)
+	if err != nil {
+		t.Fatalf("InitBaseline: %v", err)
+	}
+	if made != len(db.BaselineTables()) {
+		t.Errorf("made %d tables", made)
+	}
+	applied, err := db.AppliedLaravelMigrations(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report := db.CompareMigrations(applied, db.ExpectedMigrations()); !report.OK() {
+		t.Errorf("the check disagrees with the baseline: %+v", report)
+	}
+
+	// A database that has the tables is left alone.
+	if _, err := db.InitBaseline(ctx, sqlDB); err == nil {
+		t.Error("a database that already has the tables was initialised again")
+	}
+}

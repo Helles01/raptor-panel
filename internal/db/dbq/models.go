@@ -9,6 +9,285 @@ import (
 	"time"
 )
 
+type ActivityLog struct {
+	ID          uint64
+	Batch       sql.NullString
+	Event       string
+	Ip          string
+	Description sql.NullString
+	ActorType   sql.NullString
+	ActorID     sql.NullInt64
+	ApiKeyID    sql.NullInt32
+	Properties  string
+	Timestamp   time.Time
+}
+
+type ActivityLogSubject struct {
+	ID            uint64
+	ActivityLogID uint64
+	SubjectType   string
+	SubjectID     uint64
+}
+
+type Allocation struct {
+	ID        uint32
+	NodeID    uint32
+	Ip        string
+	IpAlias   sql.NullString
+	Port      uint32
+	ServerID  sql.NullInt32
+	Notes     sql.NullString
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
+
+type ApiKey struct {
+	ID               uint32
+	UserID           uint32
+	KeyType          uint8
+	Identifier       sql.NullString
+	Token            string
+	AllowedIps       sql.NullString
+	Memo             sql.NullString
+	LastUsedAt       sql.NullTime
+	ExpiresAt        sql.NullTime
+	CreatedAt        sql.NullTime
+	UpdatedAt        sql.NullTime
+	RServers         uint8
+	RNodes           uint8
+	RAllocations     uint8
+	RUsers           uint8
+	RLocations       uint8
+	RNests           uint8
+	REggs            uint8
+	RDatabaseHosts   uint8
+	RServerDatabases uint8
+}
+
+type ApiLog struct {
+	ID         uint32
+	Authorized bool
+	Error      sql.NullString
+	Key        sql.NullString
+	Method     string
+	Route      string
+	Content    sql.NullString
+	UserAgent  string
+	RequestIp  string
+	CreatedAt  sql.NullTime
+	UpdatedAt  sql.NullTime
+}
+
+type AuditLog struct {
+	ID        uint64
+	Uuid      string
+	IsSystem  bool
+	UserID    sql.NullInt32
+	ServerID  sql.NullInt32
+	Action    string
+	Subaction sql.NullString
+	Device    string
+	Metadata  string
+	CreatedAt time.Time
+}
+
+type Backup struct {
+	ID           uint64
+	ServerID     uint32
+	Uuid         string
+	UploadID     sql.NullString
+	IsSuccessful bool
+	IsLocked     uint8
+	Name         string
+	IgnoredFiles string
+	Disk         string
+	Checksum     sql.NullString
+	Bytes        uint64
+	CompletedAt  sql.NullTime
+	CreatedAt    sql.NullTime
+	UpdatedAt    sql.NullTime
+	DeletedAt    sql.NullTime
+}
+
+type Database struct {
+	ID             uint32
+	ServerID       uint32
+	DatabaseHostID uint32
+	Database       string
+	Username       string
+	Remote         string
+	Password       string
+	MaxConnections sql.NullInt32
+	CreatedAt      sql.NullTime
+	UpdatedAt      sql.NullTime
+}
+
+type DatabaseHost struct {
+	ID           uint32
+	Name         string
+	Host         string
+	Port         uint32
+	Username     string
+	Password     string
+	MaxDatabases sql.NullInt32
+	NodeID       sql.NullInt32
+	CreatedAt    sql.NullTime
+	UpdatedAt    sql.NullTime
+}
+
+type Egg struct {
+	ID                 uint32
+	Uuid               string
+	NestID             uint32
+	Author             string
+	Name               string
+	Description        sql.NullString
+	Features           sql.NullString
+	DockerImages       sql.NullString
+	FileDenylist       sql.NullString
+	UpdateUrl          sql.NullString
+	ConfigFiles        sql.NullString
+	ConfigStartup      sql.NullString
+	ConfigLogs         sql.NullString
+	ConfigStop         sql.NullString
+	ConfigFrom         sql.NullInt32
+	Startup            sql.NullString
+	ScriptContainer    string
+	CopyScriptFrom     sql.NullInt32
+	ScriptEntry        string
+	ScriptIsPrivileged bool
+	ScriptInstall      sql.NullString
+	CreatedAt          sql.NullTime
+	UpdatedAt          sql.NullTime
+	ForceOutgoingIp    bool
+}
+
+type EggMount struct {
+	EggID   uint32
+	MountID uint32
+}
+
+type EggVariable struct {
+	ID           uint32
+	EggID        uint32
+	Name         string
+	Description  string
+	EnvVariable  string
+	DefaultValue string
+	UserViewable uint8
+	UserEditable uint8
+	Rules        sql.NullString
+	CreatedAt    sql.NullTime
+	UpdatedAt    sql.NullTime
+}
+
+type FailedJob struct {
+	ID         uint32
+	Uuid       sql.NullString
+	Connection string
+	Queue      string
+	Payload    string
+	FailedAt   time.Time
+	Exception  string
+}
+
+type Job struct {
+	ID          uint64
+	Queue       string
+	Payload     string
+	Attempts    uint8
+	ReservedAt  sql.NullInt32
+	AvailableAt uint32
+	CreatedAt   uint32
+}
+
+type Location struct {
+	ID        uint32
+	Short     string
+	Long      sql.NullString
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
+
+type Migration struct {
+	ID        uint32
+	Migration string
+	Batch     int32
+}
+
+type Mount struct {
+	ID            uint32
+	Uuid          string
+	Name          string
+	Description   sql.NullString
+	Source        string
+	Target        string
+	ReadOnly      uint8
+	UserMountable uint8
+}
+
+type MountNode struct {
+	NodeID  uint32
+	MountID uint32
+}
+
+type MountServer struct {
+	ServerID uint32
+	MountID  uint32
+}
+
+type Nest struct {
+	ID          uint32
+	Uuid        string
+	Author      string
+	Name        string
+	Description sql.NullString
+	CreatedAt   sql.NullTime
+	UpdatedAt   sql.NullTime
+}
+
+type Node struct {
+	ID                 uint32
+	Uuid               string
+	Public             uint16
+	Name               string
+	Description        sql.NullString
+	LocationID         uint32
+	Fqdn               string
+	Scheme             string
+	BehindProxy        bool
+	MaintenanceMode    bool
+	Memory             uint32
+	MemoryOverallocate int32
+	Disk               uint32
+	DiskOverallocate   int32
+	UploadSize         uint32
+	DaemonTokenID      string
+	DaemonToken        string
+	Daemonlisten       uint16
+	Daemonsftp         uint16
+	Daemonbase         string
+	CreatedAt          sql.NullTime
+	UpdatedAt          sql.NullTime
+}
+
+type Notification struct {
+	ID             string
+	Type           string
+	NotifiableType string
+	NotifiableID   uint64
+	Data           string
+	ReadAt         sql.NullTime
+	CreatedAt      sql.NullTime
+	UpdatedAt      sql.NullTime
+}
+
+type PasswordReset struct {
+	Email     string
+	Token     string
+	CreatedAt time.Time
+}
+
 type RaptorSecret struct {
 	ID         uint64
 	TableName  string
@@ -18,4 +297,164 @@ type RaptorSecret struct {
 	SourceHash sql.NullString
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+type RecoveryToken struct {
+	ID        uint64
+	UserID    uint32
+	Token     string
+	CreatedAt sql.NullTime
+}
+
+type Schedule struct {
+	ID             uint32
+	ServerID       uint32
+	Name           string
+	CronDayOfWeek  string
+	CronMonth      string
+	CronDayOfMonth string
+	CronHour       string
+	CronMinute     string
+	IsActive       bool
+	IsProcessing   bool
+	OnlyWhenOnline uint8
+	LastRunAt      sql.NullTime
+	NextRunAt      sql.NullTime
+	CreatedAt      sql.NullTime
+	UpdatedAt      sql.NullTime
+}
+
+type Server struct {
+	ID              uint32
+	ExternalID      sql.NullString
+	Uuid            string
+	Uuidshort       string
+	NodeID          uint32
+	Name            string
+	Description     string
+	Status          sql.NullString
+	SkipScripts     bool
+	OwnerID         uint32
+	Memory          uint32
+	Swap            int32
+	Disk            uint32
+	Io              uint32
+	Cpu             uint32
+	Threads         sql.NullString
+	OomDisabled     uint8
+	AllocationID    uint32
+	NestID          uint32
+	EggID           uint32
+	Startup         string
+	Image           string
+	AllocationLimit sql.NullInt32
+	DatabaseLimit   sql.NullInt32
+	BackupLimit     uint32
+	CreatedAt       sql.NullTime
+	UpdatedAt       sql.NullTime
+	InstalledAt     sql.NullTime
+}
+
+type ServerTransfer struct {
+	ID            uint32
+	ServerID      uint32
+	Successful    sql.NullBool
+	OldNode       uint32
+	NewNode       uint32
+	OldAllocation uint32
+	NewAllocation uint32
+	// (DC2Type:json)
+	OldAdditionalAllocations sql.NullString
+	// (DC2Type:json)
+	NewAdditionalAllocations sql.NullString
+	Archived                 bool
+	CreatedAt                sql.NullTime
+	UpdatedAt                sql.NullTime
+}
+
+type ServerVariable struct {
+	ID            uint32
+	ServerID      sql.NullInt32
+	VariableID    uint32
+	VariableValue string
+	CreatedAt     sql.NullTime
+	UpdatedAt     sql.NullTime
+}
+
+type Session struct {
+	ID           string
+	UserID       sql.NullInt32
+	IpAddress    sql.NullString
+	UserAgent    sql.NullString
+	Payload      string
+	LastActivity int32
+}
+
+type Setting struct {
+	ID    uint32
+	Key   string
+	Value string
+}
+
+type Subuser struct {
+	ID          uint32
+	UserID      uint32
+	ServerID    uint32
+	Permissions sql.NullString
+	CreatedAt   sql.NullTime
+	UpdatedAt   sql.NullTime
+}
+
+type Task struct {
+	ID                uint32
+	ScheduleID        uint32
+	SequenceID        uint32
+	Action            string
+	Payload           string
+	TimeOffset        uint32
+	IsQueued          bool
+	ContinueOnFailure uint8
+	CreatedAt         sql.NullTime
+	UpdatedAt         sql.NullTime
+}
+
+type TasksLog struct {
+	ID        uint32
+	TaskID    uint32
+	RunTime   time.Time
+	RunStatus uint32
+	Response  string
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
+
+type User struct {
+	ID                  uint32
+	ExternalID          sql.NullString
+	Uuid                string
+	Username            string
+	Email               string
+	NameFirst           sql.NullString
+	NameLast            sql.NullString
+	Password            string
+	RememberToken       sql.NullString
+	Language            string
+	RootAdmin           uint8
+	UseTotp             uint8
+	TotpSecret          sql.NullString
+	TotpAuthenticatedAt sql.NullTime
+	Gravatar            bool
+	CreatedAt           sql.NullTime
+	UpdatedAt           sql.NullTime
+}
+
+type UserSshKey struct {
+	ID          uint32
+	UserID      uint32
+	Name        string
+	Fingerprint string
+	PublicKey   string
+	CreatedAt   sql.NullTime
+	UpdatedAt   sql.NullTime
+	DeletedAt   sql.NullTime
 }

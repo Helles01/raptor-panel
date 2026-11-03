@@ -50,6 +50,7 @@ func TestCommandsRejectBadInvocation(t *testing.T) {
 		{"unknown flag", []string{"db", "check", "--nope"}, nil, 2, "invalid arguments"},
 		{"db check without database name", []string{"db", "check"}, map[string]string{"RAPTOR_DB_USER": "u"}, 1, "db.name"},
 		{"db migrate with bad port", []string{"db", "migrate"}, map[string]string{"RAPTOR_DB_PORT": "x"}, 1, "RAPTOR_DB_PORT"},
+		{"db init with bad port", []string{"db", "init"}, map[string]string{"RAPTOR_DB_PORT": "x"}, 1, "RAPTOR_DB_PORT"},
 		{"migrate-secrets without the old key", []string{"migrate-secrets"}, nil, 1, legacyKeyVariable + " is not set"},
 		{"migrate-secrets with an invalid old key", []string{"migrate-secrets"}, map[string]string{legacyKeyVariable: "base64:***"}, 1, "not valid base64"},
 		{"migrate-secrets with a wrong sized old key", []string{"migrate-secrets"}, map[string]string{legacyKeyVariable: "short"}, 1, "16 or 32 bytes"},

@@ -27,6 +27,7 @@ func cmdKeygen(_ context.Context, e *env, args []string) error {
 func cmdDB(ctx context.Context, e *env, args []string) error {
 	return dispatch(ctx, e, "raptor db", map[string]handler{
 		"check":   cmdDBCheck,
+		"init":    cmdDBInit,
 		"migrate": cmdDBMigrate,
 	}, args)
 }
@@ -103,5 +104,27 @@ func cmdDBMigrate(ctx context.Context, e *env, args []string) error {
 	if len(done) == 0 {
 		fmt.Fprintln(e.stdout, "nothing to apply, Raptor's tables are up to date")
 	}
+	return nil
+}
+
+// cmdDBInit makes the tables of the reference panel in an empty database, for a clean install. A database that has any of them is refused.
+func cmdDBInit(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet("db init", e)
+	configPath := configFlag(fs)
+	if proceed, err := parseFlags(fs, args); !proceed {
+		return err
+	}
+
+	sqlDB, _, err := openDB(ctx, e, *configPath)
+	if err != nil {
+		return err
+	}
+	defer sqlDB.Close()
+
+	made, err := db.InitBaseline(ctx, sqlDB)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.stdout, "made %d tables and recorded %d migrations; run `raptor db migrate` next\n", made, len(db.ExpectedMigrations()))
 	return nil
 }
