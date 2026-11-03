@@ -355,3 +355,139 @@ func TestNewNeedsItsDependencies(t *testing.T) {
 		}
 	}
 }
+
+type fakeOrigins struct {
+	list  []string
+	err   error
+	calls int
+}
+
+func (f *fakeOrigins) ConnectSources(context.Context) ([]string, error) {
+	f.calls++
+	return f.list, f.err
+}
+
+type clock struct{ now time.Time }
+
+func (c *clock) Now() time.Time { return c.now }
+
+func csp(rp apitest.Reply) string { return rp.Header.Get("Content-Security-Policy") }
+
+func TestThePageAllowsTheNodes(t *testing.T) {
+	origins := &fakeOrigins{list: web.NodeSources("https", "n1.example.com", 8080)}
+	r := serve(t, func(d *Deps) { d.Origins = origins })
+	rp := r.client.AsSession(r.login(t, 7), "GET", "/", "")
+	if !strings.Contains(csp(rp), "https://n1.example.com:8080") || !strings.Contains(csp(rp), "wss://n1.example.com:8080") {
+		t.Errorf("csp = %s", csp(rp))
+	}
+	// The sign-in pages talk to no node and are not given any.
+	if rp := r.client.As(0, "GET", "/auth/login", ""); strings.Contains(csp(rp), "n1.example.com") || origins.calls != 1 {
+		t.Errorf("csp = %s, the store was asked %d times", csp(rp), origins.calls)
+	}
+}
+
+func TestTheOriginsAreKeptForAWhile(t *testing.T) {
+	origins := &fakeOrigins{list: []string{"https://n1.example.com:8080"}}
+	now := &clock{now: time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)}
+	r := serve(t, func(d *Deps) { d.Origins, d.Now, d.OriginsTTL = origins, now.Now, time.Minute })
+	ada := r.login(t, 7)
+	get := func() string { return csp(r.client.AsSession(ada, "GET", "/", "")) }
+
+	get()
+	get()
+	now.now = now.now.Add(59 * time.Second)
+	get()
+	if origins.calls != 1 {
+		t.Fatalf("the store was asked %d times within the minute", origins.calls)
+	}
+	// A node was added; after the minute the page knows it.
+	origins.list = []string{"https://n1.example.com:8080", "https://n2.example.com:8080"}
+	if strings.Contains(get(), "n2.example.com") {
+		t.Error("the new node was known before the list was asked for again")
+	}
+	now.now = now.now.Add(2 * time.Second)
+	if got := get(); !strings.Contains(got, "n2.example.com") || origins.calls != 2 {
+		t.Errorf("csp = %s, calls %d", got, origins.calls)
+	}
+}
+
+func TestADownStoreKeepsTheLastListAndIsNotAskedByEveryPage(t *testing.T) {
+	origins := &fakeOrigins{list: []string{"https://n1.example.com:8080"}}
+	now := &clock{now: time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)}
+	r := serve(t, func(d *Deps) { d.Origins, d.Now, d.OriginsTTL = origins, now.Now, time.Minute })
+	ada := r.login(t, 7)
+	r.client.AsSession(ada, "GET", "/", "")
+
+	origins.err = errBoom
+	now.now = now.now.Add(2 * time.Minute)
+	for i := 0; i < 3; i++ {
+		rp := r.client.AsSession(ada, "GET", "/", "")
+		if rp.Status != 200 || !strings.Contains(csp(rp), "n1.example.com") || rp.Contains("hunter2") {
+			t.Fatalf("page %d: %d %s", i, rp.Status, csp(rp))
+		}
+	}
+	if origins.calls != 2 {
+		t.Errorf("the store was asked %d times, want 1 + 1", origins.calls)
+	}
+}
+
+func TestADownStoreAtTheStartGivesNoOriginsButAPage(t *testing.T) {
+	origins := &fakeOrigins{err: errBoom}
+	r := serve(t, func(d *Deps) { d.Origins = origins })
+	rp := r.client.AsSession(r.login(t, 7), "GET", "/", "")
+	if rp.Status != 200 || !strings.Contains(csp(rp), "connect-src 'self'") {
+		t.Errorf("%d %s", rp.Status, csp(rp))
+	}
+}
+
+func TestOriginsAreOptional(t *testing.T) {
+	r := serve(t, nil)
+	rp := r.client.AsSession(r.login(t, 7), "GET", "/", "")
+	if rp.Status != 200 || !strings.Contains(csp(rp)+";", "connect-src 'self';") {
+		t.Errorf("%d %s", rp.Status, csp(rp))
+	}
+}
+
+func TestOriginsFromTheTableCannotAddADirective(t *testing.T) {
+	origins := &fakeOrigins{list: []string{"https://ok.example.com:8080", "https://evil.example.com; script-src *", "*"}}
+	r := serve(t, func(d *Deps) { d.Origins = origins })
+	got := csp(r.client.AsSession(r.login(t, 7), "GET", "/", ""))
+	if !strings.Contains(got, "https://ok.example.com:8080") || strings.Contains(got, "evil") || strings.Contains(got, "script-src *") {
+		t.Errorf("csp = %s", got)
+	}
+}
+
+func TestTheListIsAskedForAgainAtExactlyTheTimeLimit(t *testing.T) {
+	origins := &fakeOrigins{list: []string{"https://n1.example.com:8080"}}
+	now := &clock{now: time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)}
+	r := serve(t, func(d *Deps) { d.Origins, d.Now, d.OriginsTTL = origins, now.Now, time.Minute })
+	ada := r.login(t, 7)
+	r.client.AsSession(ada, "GET", "/", "")
+	now.now = now.now.Add(time.Minute)
+	r.client.AsSession(ada, "GET", "/", "")
+	if origins.calls != 2 {
+		t.Errorf("the store was asked %d times", origins.calls)
+	}
+}
+
+func TestTheDefaultsOfTheOriginsList(t *testing.T) {
+	// The default time limit is long enough that two pages in a row share one question.
+	origins := &fakeOrigins{list: []string{"https://n1.example.com:8080"}}
+	r := serve(t, func(d *Deps) { d.Origins = origins })
+	ada := r.login(t, 7)
+	r.client.AsSession(ada, "GET", "/", "")
+	r.client.AsSession(ada, "GET", "/account", "")
+	if origins.calls != 1 {
+		t.Errorf("the store was asked %d times for two pages", origins.calls)
+	}
+	// And the clock is the real one: a short time limit runs out.
+	origins = &fakeOrigins{list: []string{"https://n1.example.com:8080"}}
+	r = serve(t, func(d *Deps) { d.Origins, d.OriginsTTL = origins, 20*time.Millisecond })
+	ada = r.login(t, 7)
+	r.client.AsSession(ada, "GET", "/", "")
+	time.Sleep(60 * time.Millisecond)
+	r.client.AsSession(ada, "GET", "/", "")
+	if origins.calls != 2 {
+		t.Errorf("with the real clock the store was asked %d times", origins.calls)
+	}
+}

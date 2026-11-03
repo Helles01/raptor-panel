@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -152,16 +153,45 @@ type shellData struct {
 	Main      ManifestEntry
 }
 
+// MaxExtraSources is how many origins beyond the fixed ones a page may allow connections to; the rest are left out, so that a panel with a
+// very large number of nodes cannot make the header of every page huge.
+const MaxExtraSources = 500
+
 // ContentSecurityPolicy returns the policy for a page with the given script nonce. Scripts run only if they come from
 // this origin or carry the nonce; styles may be inline because the frontend's CSS-in-JS injects them.
 func (s *Shell) ContentSecurityPolicy(nonce string) string {
+	return s.ContentSecurityPolicyWith(nonce, nil)
+}
+
+// ContentSecurityPolicyWith is ContentSecurityPolicy with more origins the page may connect to: the nodes, which the browser talks to
+// directly for the console and for files, and which can be added while the panel runs. An origin that is not of the plain form
+// (http(s):// or ws(s):// with a host and a port, nothing else) is left out, because it comes from a table and must not be able to add a
+// directive to the policy.
+func (s *Shell) ContentSecurityPolicyWith(nonce string, extra []string) string {
+	connect := s.connect
+	seen := map[string]bool{}
+	for _, f := range strings.Fields(s.connect) {
+		seen[f] = true
+	}
+	added := 0
+	for _, e := range extra {
+		if added == MaxExtraSources {
+			break
+		}
+		if !sourcePattern.MatchString(e) || e == "'self'" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		connect += " " + e
+		added++
+	}
 	return strings.Join([]string{
 		"default-src 'none'",
 		"script-src 'self' 'nonce-" + nonce + "'",
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' data:",
 		"font-src 'self' data:",
-		"connect-src " + s.connect,
+		"connect-src " + connect,
 		"base-uri 'none'",
 		"form-action 'self'",
 		"frame-ancestors 'none'",
@@ -171,6 +201,11 @@ func (s *Shell) ContentSecurityPolicy(nonce string) string {
 
 // Render writes the page. user is nil for the login pages.
 func (s *Shell) Render(w http.ResponseWriter, page Page, user *User, site Site) error {
+	return s.RenderWith(w, page, user, site, nil)
+}
+
+// RenderWith is Render for a page that may also connect to the origins in extra (see ContentSecurityPolicyWith).
+func (s *Shell) RenderWith(w http.ResponseWriter, page Page, user *User, site Site, extra []string) error {
 	class, ok := bodyClasses[page]
 	if !ok {
 		return fmt.Errorf("unknown page %q", page)
@@ -186,7 +221,32 @@ func (s *Shell) Render(w http.ResponseWriter, page Page, user *User, site Site) 
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	// The page carries account data, so it is never cached or shared.
 	h.Set("Cache-Control", "no-store")
-	h.Set("Content-Security-Policy", s.ContentSecurityPolicy(nonce))
+	h.Set("Content-Security-Policy", s.ContentSecurityPolicyWith(nonce, extra))
 
 	return s.tmpl.Execute(w, shellData{Site: site, User: user, Nonce: nonce, BodyClass: class, Modal: page == PageApp, Main: s.main})
+}
+
+// NodeSources are the origins a page needs to connect to a node: the address of its API for the requests the browser makes, and the same
+// with the scheme of a web socket for the console. A name that is not of the plain form gives none.
+func NodeSources(scheme, fqdn string, port int) []string {
+	var ws string
+	switch scheme {
+	case "https":
+		ws = "wss"
+	case "http":
+		ws = "ws"
+	default:
+		return nil
+	}
+	if port < 1 || port > 65535 {
+		return nil
+	}
+	hostPort := fqdn + ":" + strconv.Itoa(port)
+	out := []string{scheme + "://" + hostPort, ws + "://" + hostPort}
+	for _, o := range out {
+		if !sourcePattern.MatchString(o) {
+			return nil
+		}
+	}
+	return out
 }

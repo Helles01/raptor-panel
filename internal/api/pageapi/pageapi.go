@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -32,6 +34,16 @@ type Settings interface {
 	Site(ctx context.Context) (web.Site, error)
 }
 
+// Origins gives the origins of the nodes the signed-in page may connect to, such as "https://n1.example.com:8080" and "wss://n1.example.com:8080"
+// (web.NodeSources makes both from a node's row). The console and the file transfers go from the browser to the node, and the policy of the page
+// has to allow them; nodes are added while the panel runs, so the list is asked for again from time to time.
+type Origins interface {
+	ConnectSources(ctx context.Context) ([]string, error)
+}
+
+// DefaultOriginsTTL is how long the list of origins is kept.
+const DefaultOriginsTTL = 30 * time.Second
+
 // Deps are everything the pages need.
 type Deps struct {
 	Shell    *web.Shell
@@ -42,18 +54,34 @@ type Deps struct {
 	// LocaleLimiter limits the requests for translations of one address, which anybody may make.
 	LocaleLimiter *middleware.Limiter
 	Logger        *slog.Logger
+	// Origins is optional: without it the page may connect to nothing but the panel and the fixed origins of the shell.
+	Origins    Origins
+	OriginsTTL time.Duration
+	// Now defaults to time.Now.
+	Now func() time.Time
 }
 
 // Handlers are the pages.
 type Handlers struct {
 	d      Deps
 	assets http.Handler
+
+	mu      sync.Mutex
+	sources []string
+	fetched time.Time
+	have    bool
 }
 
 // New checks the dependencies and returns the pages.
 func New(d Deps) (*Handlers, error) {
 	if d.Shell == nil || d.Locales == nil || d.Assets == nil || d.Users == nil || d.Settings == nil || d.LocaleLimiter == nil || d.Logger == nil {
 		return nil, errors.New("pageapi: the shell, the locales, the assets, the stores, a limiter and a logger are required")
+	}
+	if d.OriginsTTL <= 0 {
+		d.OriginsTTL = DefaultOriginsTTL
+	}
+	if d.Now == nil {
+		d.Now = time.Now
 	}
 	return &Handlers{d: d, assets: web.AssetsHandler(d.Assets)}, nil
 }
@@ -99,10 +127,39 @@ func (h *Handlers) render(c echo.Context, page web.Page, user *web.User) error {
 	if err != nil {
 		return apierr.Internal(err)
 	}
-	if err := h.d.Shell.Render(c.Response(), page, user, site); err != nil {
+	// Only the page of the signed in talks to the nodes; the sign-in pages are given no more than the fixed origins.
+	var extra []string
+	if page == web.PageApp {
+		extra = h.connectSources(c.Request().Context())
+	}
+	if err := h.d.Shell.RenderWith(c.Response(), page, user, site, extra); err != nil {
 		return apierr.Internal(err)
 	}
 	return nil
+}
+
+// connectSources returns the origins of the nodes, kept for OriginsTTL. If the store fails the last list is used and the failure is logged,
+// so that a hiccup of the database does not take the console away from everybody; without a last list the page has none, which shows as
+// a console that does not connect and a line in the log.
+func (h *Handlers) connectSources(ctx context.Context) []string {
+	if h.d.Origins == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.d.Now()
+	if h.have && now.Sub(h.fetched) < h.d.OriginsTTL {
+		return h.sources
+	}
+	list, err := h.d.Origins.ConnectSources(ctx)
+	if err != nil {
+		h.d.Logger.Error("the origins of the nodes could not be read; the console may not connect", "error", err)
+	} else {
+		h.sources = list
+	}
+	// A failure counts as a fetch too, so that a store that is down is asked once in a while and not by every page.
+	h.have, h.fetched = true, now
+	return h.sources
 }
 
 // App is the page of the signed in; whoever is not goes to sign in.

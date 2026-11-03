@@ -32,6 +32,10 @@ type Config struct {
 	Secrets Secrets `yaml:"secrets"`
 	HTTP    HTTP    `yaml:"http"`
 	Wings   Wings   `yaml:"wings"`
+	Log     Log     `yaml:"log"`
+	Jobs    Jobs    `yaml:"jobs"`
+	Web     Web     `yaml:"web"`
+	DBHosts DBHosts `yaml:"db_hosts"`
 }
 
 // App holds what identifies this panel to the outside.
@@ -96,6 +100,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 		HTTP:  HTTP{Listen: "127.0.0.1:8080"},
 		Wings: Wings{TimeoutSeconds: 15, ConnectTimeoutSeconds: 5},
 	}
+	cfg.setRuntimeDefaults()
 
 	if path == "" {
 		path = getenv("RAPTOR_CONFIG")
@@ -141,6 +146,10 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	override(&cfg.HTTP.Listen, "RAPTOR_HTTP_LISTEN")
 	override(&cfg.App.URL, "RAPTOR_APP_URL")
 	override(&cfg.App.Timezone, "RAPTOR_APP_TIMEZONE")
+	override(&cfg.Log.Level, "RAPTOR_LOG_LEVEL")
+	override(&cfg.Log.Format, "RAPTOR_LOG_FORMAT")
+	override(&cfg.Web.AssetsDir, "RAPTOR_ASSETS_DIR")
+	override(&cfg.DBHosts.TLS, "RAPTOR_DB_HOSTS_TLS")
 	if v := getenv("RAPTOR_WINGS_INSECURE_TLS"); v != "" {
 		insecure, err := strconv.ParseBool(v)
 		if err != nil {

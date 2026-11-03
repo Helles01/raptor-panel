@@ -11,7 +11,7 @@ of the reference (without `/admin`) are served (`internal/api/inventory`). `scri
 ## What is missing, in order
 | # | Step | Needs from the user | Size |
 |---|---|---|---|
-| 1 | The schema: `docs/schema/mysqldump-no-data.sql`, `migrations.txt`, `server-version.txt` (structure only, no data) | the three files, made on the old panel's database | the user's, minutes |
+| 1 | The schema: `docs/schema/mysqldump-no-data.sql`, `migrations.txt`, `server-version.txt` (structure only, no data), made with `scripts/dump-schema.sh` (see `docs/schema/README.md`) | one command on a machine that reaches the old panel's database; the password is typed on the terminal | the user's, minutes |
 | 2 | `internal/db`: sqlc setup, the baseline, the stores of `docs/store-contract.md` (the first-test group: ~35 interfaces) | – | several chunks |
 | 3 | `app.Build` (every handler from its stores, the limits, the health checks), `raptor serve`, the commands registered in `cmd/raptor` | – | 1-2 chunks |
 | 4 | A test MariaDB (a local instance, a root password the user sets, an empty database `raptor_test`) | the password, once, typed by the user | the user's |

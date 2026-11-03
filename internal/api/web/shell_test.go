@@ -2,11 +2,13 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -366,5 +368,102 @@ func TestAssetsHandler(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/assets/bundle.35150288.js", nil))
 	if rec.Body.String() != "console.log(1)" || !strings.Contains(rec.Header().Get("Content-Type"), "javascript") {
 		t.Errorf("body %q, content type %q", rec.Body.String(), rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestNodeSources(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scheme, fqdn string
+		port         int
+		want         []string
+	}{
+		"https node":   {"https", "n1.example.com", 8080, []string{"https://n1.example.com:8080", "wss://n1.example.com:8080"}},
+		"http node":    {"http", "10.0.0.5", 8080, []string{"http://10.0.0.5:8080", "ws://10.0.0.5:8080"}},
+		"other scheme": {"ftp", "n1.example.com", 8080, nil},
+		"empty scheme": {"", "n1.example.com", 8080, nil},
+		"port zero":    {"https", "n1.example.com", 0, nil},
+		"port high":    {"https", "n1.example.com", 65536, nil},
+		"a directive":  {"https", "n1.example.com;script-src", 8080, nil},
+		"a space":      {"https", "a b", 8080, nil},
+		"a star":       {"https", "*", 8080, nil},
+		"empty host":   {"https", "", 8080, nil},
+		"a path":       {"https", "n1.example.com/x", 8080, nil},
+	} {
+		if got := NodeSources(tc.scheme, tc.fqdn, tc.port); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestContentSecurityPolicyWithMoreOrigins(t *testing.T) {
+	s := newTestShell(t, ShellOptions{ConnectSources: []string{"https://fixed.example.com:8080"}})
+	connect := func(csp string) string {
+		for _, d := range strings.Split(csp, "; ") {
+			if strings.HasPrefix(d, "connect-src ") {
+				return strings.TrimPrefix(d, "connect-src ")
+			}
+		}
+		t.Fatalf("no connect-src in %q", csp)
+		return ""
+	}
+	if got := connect(s.ContentSecurityPolicy("n")); got != "'self' https://fixed.example.com:8080" {
+		t.Errorf("without more: %q", got)
+	}
+	got := connect(s.ContentSecurityPolicyWith("n", []string{
+		"https://n1.example.com:8080", "wss://n1.example.com:8080",
+		"https://n1.example.com:8080",            // twice
+		"https://fixed.example.com:8080",         // already there
+		"https://evil.example.com; script-src *", // a directive
+		"*", "'unsafe-inline'", "data:", "http://a b:1", "'self'",
+	}))
+	if got != "'self' https://fixed.example.com:8080 https://n1.example.com:8080 wss://n1.example.com:8080" {
+		t.Errorf("with more: %q", got)
+	}
+
+	// The rest of the policy does not move, and the other directives are not given the origins.
+	csp := s.ContentSecurityPolicyWith("abc", []string{"https://n1.example.com:8080"})
+	for _, want := range []string{"default-src 'none'", "script-src 'self' 'nonce-abc'", "frame-ancestors 'none'", "object-src 'none'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("the policy lacks %q: %s", want, csp)
+		}
+	}
+	if strings.Count(csp, "n1.example.com") != 1 {
+		t.Errorf("the origin is in more than one directive: %s", csp)
+	}
+}
+
+func TestContentSecurityPolicyWithIsCapped(t *testing.T) {
+	s := newTestShell(t, ShellOptions{})
+	var many []string
+	for i := 0; i < MaxExtraSources+50; i++ {
+		many = append(many, fmt.Sprintf("https://n%d.example.com:8080", i))
+	}
+	csp := s.ContentSecurityPolicyWith("n", many)
+	if got := strings.Count(csp, "https://n"); got != MaxExtraSources {
+		t.Errorf("%d origins were allowed, want %d", got, MaxExtraSources)
+	}
+	// Invalid ones do not use up the allowance.
+	mixed := append([]string{"bad one", "bad two"}, many[:MaxExtraSources]...)
+	if got := strings.Count(s.ContentSecurityPolicyWith("n", mixed), "https://n"); got != MaxExtraSources {
+		t.Errorf("with invalid ones first: %d", got)
+	}
+}
+
+func TestRenderWithPutsTheOriginsInTheHeaderOnly(t *testing.T) {
+	s := newTestShell(t, ShellOptions{})
+	rec := httptest.NewRecorder()
+	if err := s.RenderWith(rec, PageApp, &User{Username: "ada"}, Site{Name: "x"}, []string{"wss://n1.example.com:8080"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "wss://n1.example.com:8080") {
+		t.Errorf("csp = %s", rec.Header().Get("Content-Security-Policy"))
+	}
+	if strings.Contains(rec.Body.String(), "n1.example.com") {
+		t.Error("the origins are in the page")
+	}
+	// Render is RenderWith without any.
+	rec = httptest.NewRecorder()
+	if err := s.Render(rec, PageApp, nil, Site{Name: "x"}); err != nil || strings.Contains(rec.Header().Get("Content-Security-Policy"), "n1.example.com") {
+		t.Errorf("err = %v, csp = %s", err, rec.Header().Get("Content-Security-Policy"))
 	}
 }
