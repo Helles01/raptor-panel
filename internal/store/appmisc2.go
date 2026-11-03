@@ -424,7 +424,8 @@ func (s appUsers) checkExternalID(ctx context.Context, q *dbq.Queries, external 
 }
 
 // retryDeadlock runs fn again when the database chose it as the victim of a deadlock (MariaDB 1213), which two requests that lock the same place in
-// the index can cause; the second time the other request has finished and the answer is the right one.
+// the index can cause; the second time the other request has finished and the answer is the right one. A statement that locks a row another request
+// changed after this transaction's snapshot (1020, which MariaDB 11.6.2 and later raise by default) is run again the same way.
 func (s appUsers) retryDeadlock(fn func() error) error {
 	var err error
 	for attempt := 0; attempt < 4; attempt++ {
@@ -437,7 +438,7 @@ func (s appUsers) retryDeadlock(fn func() error) error {
 
 func isDeadlock(err error) bool {
 	var me *mysql.MySQLError
-	return errors.As(err, &me) && (me.Number == 1213 || me.Number == 1205)
+	return errors.As(err, &me) && (me.Number == 1213 || me.Number == 1205 || me.Number == 1020)
 }
 
 func (s appUsers) Create(ctx context.Context, r appusers.CreateRequest) (appkit.User, error) {

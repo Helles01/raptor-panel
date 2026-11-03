@@ -11,7 +11,7 @@ import (
 
 // serverSelect is a server of the Application API: what the node is told about it (the same columns the node's API reads) and the ids and limits the
 // API adds. The joins give the location of the node, the egg and the egg it takes its process configuration from.
-const serverSelect = "SELECT `servers`.`id`, `servers`.`external_id`, `servers`.`uuid`, `servers`.`name`, `servers`.`description`, `servers`.`status`, `servers`.`startup`, " +
+const serverSelect = "SELECT `servers`.`id`, `servers`.`external_id`, `servers`.`uuid`, `servers`.`uuidShort`, `servers`.`name`, `servers`.`description`, `servers`.`status`, `servers`.`startup`, " +
 	"`servers`.`image`, `servers`.`memory`, `servers`.`swap`, `servers`.`disk`, `servers`.`io`, `servers`.`cpu`, `servers`.`threads`, `servers`.`oom_disabled`, " +
 	"`servers`.`skip_scripts`, `servers`.`allocation_limit`, `servers`.`allocation_id`, `locations`.`short`, `eggs`.`uuid`, `eggs`.`force_outgoing_ip`, `eggs`.`file_denylist`, " +
 	"`eggs`.`config_from`, `eggs`.`config_files`, `eggs`.`config_startup`, `eggs`.`config_stop`, `parent`.`config_files`, `parent`.`config_startup`, `parent`.`config_stop`, " +
@@ -22,7 +22,7 @@ const serverSelect = "SELECT `servers`.`id`, `servers`.`external_id`, `servers`.
 // appServerRow is a row of serverSelect.
 type appServerRow struct {
 	core
-	external                   sql.NullString
+	external, short            sql.NullString
 	owner, node, nest, egg     uint64
 	databaseLimit, backupLimit sql.NullInt64
 	created, updated           sql.NullTime
@@ -39,7 +39,7 @@ func scanAppServer(r scanner) (appServerRow, error) {
 		allocationID              uint64
 	)
 	c := &row.core
-	err := r.Scan(&id, &row.external, &c.UUID, &c.Name, &c.Description, &status, &c.Startup, &c.Image, &memory, &swap, &disk, &io, &cpu, &threads, &oom, &skip,
+	err := r.Scan(&id, &row.external, &c.UUID, &row.short, &c.Name, &c.Description, &status, &c.Startup, &c.Image, &memory, &swap, &disk, &io, &cpu, &threads, &oom, &skip,
 		&allocLimit, &allocationID, &c.LocationShort, &c.EggUUID, &force, &c.FileDenylist, &c.ConfigFrom, &c.ConfigFiles, &c.ConfigStartup, &c.ConfigStop,
 		&c.ParentFiles, &c.ParentStartup, &c.ParentStop, &row.owner, &row.node, &row.nest, &row.egg, &row.databaseLimit, &row.backupLimit, &row.created, &row.updated)
 	if err != nil {
@@ -78,7 +78,7 @@ func (d *DB) serverRecords(ctx context.Context, rows []appServerRow, load appkit
 	out := make([]appkit.Server, len(rows))
 	for i, r := range rows {
 		s := appkit.Server{
-			ID: r.ID, ExternalID: nullStr(r.external), ShortID: r.UUID[:8], Config: configs[i],
+			ID: r.ID, ExternalID: nullStr(r.external), ShortID: r.short.String, Config: configs[i],
 			OwnerID: r.owner, NodeID: r.node, AllocationID: r.AllocationID, NestID: r.nest, EggID: r.egg,
 			DatabaseLimit: nullInt64Ptr(r.databaseLimit), BackupLimit: nullInt64Ptr(r.backupLimit), CreatedAt: at(r.created), UpdatedAt: at(r.updated),
 		}

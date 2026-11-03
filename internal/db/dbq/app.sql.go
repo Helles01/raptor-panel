@@ -8,7 +8,137 @@ package dbq
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
+
+const allocationsOfNodes = `-- name: AllocationsOfNodes :many
+SELECT id, node_id, ip, port, server_id
+FROM allocations
+WHERE node_id IN (/*SLICE:ids*/?)
+ORDER BY id
+`
+
+type AllocationsOfNodesRow struct {
+	ID       uint32
+	NodeID   uint32
+	Ip       string
+	Port     uint32
+	ServerID sql.NullInt32
+}
+
+func (q *Queries) AllocationsOfNodes(ctx context.Context, ids []uint32) ([]AllocationsOfNodesRow, error) {
+	query := allocationsOfNodes
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AllocationsOfNodesRow
+	for rows.Next() {
+		var i AllocationsOfNodesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NodeID,
+			&i.Ip,
+			&i.Port,
+			&i.ServerID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const allowedMountsOfNode = `-- name: AllowedMountsOfNode :many
+SELECT m.source
+FROM mount_node mn
+JOIN mounts m ON m.id = mn.mount_id
+WHERE mn.node_id = ?
+ORDER BY m.id
+`
+
+func (q *Queries) AllowedMountsOfNode(ctx context.Context, nodeID uint32) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, allowedMountsOfNode, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var source string
+		if err := rows.Scan(&source); err != nil {
+			return nil, err
+		}
+		items = append(items, source)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const assignAllocations = `-- name: AssignAllocations :execrows
+UPDATE allocations
+SET server_id = ?
+WHERE id IN (/*SLICE:ids*/?) AND server_id IS NULL
+`
+
+type AssignAllocationsParams struct {
+	ServerID sql.NullInt32
+	Ids      []uint32
+}
+
+// The allocations are given to the server only if they are still free; the caller compares the number of rows with the number it asked for.
+func (q *Queries) AssignAllocations(ctx context.Context, arg AssignAllocationsParams) (int64, error) {
+	query := assignAllocations
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ServerID)
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	result, err := q.db.ExecContext(ctx, query, queryParams...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const countDatabasesOfServer = `-- name: CountDatabasesOfServer :one
+SELECT COUNT(*)
+FROM ` + "`" + `databases` + "`" + `
+WHERE server_id = ?
+`
+
+func (q *Queries) CountDatabasesOfServer(ctx context.Context, serverID uint32) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDatabasesOfServer, serverID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const countNodesOfLocation = `-- name: CountNodesOfLocation :one
 SELECT COUNT(*)
@@ -21,6 +151,95 @@ func (q *Queries) CountNodesOfLocation(ctx context.Context, locationID uint32) (
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countServersOnNode = `-- name: CountServersOnNode :one
+SELECT COUNT(*)
+FROM servers
+WHERE node_id = ?
+`
+
+func (q *Queries) CountServersOnNode(ctx context.Context, nodeID uint32) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countServersOnNode, nodeID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const databaseHostChoices = `-- name: DatabaseHostChoices :many
+SELECT id, node_id
+FROM database_hosts
+ORDER BY id
+`
+
+type DatabaseHostChoicesRow struct {
+	ID     uint32
+	NodeID sql.NullInt32
+}
+
+func (q *Queries) DatabaseHostChoices(ctx context.Context) ([]DatabaseHostChoicesRow, error) {
+	rows, err := q.db.QueryContext(ctx, databaseHostChoices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DatabaseHostChoicesRow
+	for rows.Next() {
+		var i DatabaseHostChoicesRow
+		if err := rows.Scan(&i.ID, &i.NodeID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const databaseHostExists = `-- name: DatabaseHostExists :one
+SELECT COUNT(*)
+FROM database_hosts
+WHERE id = ?
+`
+
+func (q *Queries) DatabaseHostExists(ctx context.Context, id uint32) (int64, error) {
+	row := q.db.QueryRowContext(ctx, databaseHostExists, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const databaseIDsOfServer = `-- name: DatabaseIDsOfServer :many
+SELECT id
+FROM ` + "`" + `databases` + "`" + `
+WHERE server_id = ?
+`
+
+func (q *Queries) DatabaseIDsOfServer(ctx context.Context, serverID uint32) ([]uint32, error) {
+	rows, err := q.db.QueryContext(ctx, databaseIDsOfServer, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uint32
+	for rows.Next() {
+		var id uint32
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteAllocation = `-- name: DeleteAllocation :exec
@@ -53,6 +272,19 @@ func (q *Queries) DeleteApplicationKeysOfUser(ctx context.Context, userID uint32
 	return err
 }
 
+const deleteDatabaseRow = `-- name: DeleteDatabaseRow :execrows
+DELETE FROM ` + "`" + `databases` + "`" + `
+WHERE id = ?
+`
+
+func (q *Queries) DeleteDatabaseRow(ctx context.Context, id uint32) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteDatabaseRow, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteLocation = `-- name: DeleteLocation :exec
 DELETE FROM locations
 WHERE id = ?
@@ -61,6 +293,83 @@ WHERE id = ?
 func (q *Queries) DeleteLocation(ctx context.Context, id uint32) error {
 	_, err := q.db.ExecContext(ctx, deleteLocation, id)
 	return err
+}
+
+const deleteNode = `-- name: DeleteNode :exec
+DELETE FROM nodes
+WHERE id = ?
+`
+
+func (q *Queries) DeleteNode(ctx context.Context, id uint32) error {
+	_, err := q.db.ExecContext(ctx, deleteNode, id)
+	return err
+}
+
+const deleteServerRow = `-- name: DeleteServerRow :exec
+DELETE FROM servers
+WHERE id = ?
+`
+
+func (q *Queries) DeleteServerRow(ctx context.Context, id uint32) error {
+	_, err := q.db.ExecContext(ctx, deleteServerRow, id)
+	return err
+}
+
+const eggNest = `-- name: EggNest :one
+SELECT nest_id
+FROM eggs
+WHERE id = ?
+`
+
+func (q *Queries) EggNest(ctx context.Context, id uint32) (uint32, error) {
+	row := q.db.QueryRowContext(ctx, eggNest, id)
+	var nest_id uint32
+	err := row.Scan(&nest_id)
+	return nest_id, err
+}
+
+const eggVariablesForRules = `-- name: EggVariablesForRules :many
+SELECT env_variable, name, rules, user_viewable, user_editable
+FROM egg_variables
+WHERE egg_id = ?
+ORDER BY id
+`
+
+type EggVariablesForRulesRow struct {
+	EnvVariable  string
+	Name         string
+	Rules        sql.NullString
+	UserViewable uint8
+	UserEditable uint8
+}
+
+func (q *Queries) EggVariablesForRules(ctx context.Context, eggID uint32) ([]EggVariablesForRulesRow, error) {
+	rows, err := q.db.QueryContext(ctx, eggVariablesForRules, eggID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EggVariablesForRulesRow
+	for rows.Next() {
+		var i EggVariablesForRulesRow
+		if err := rows.Scan(
+			&i.EnvVariable,
+			&i.Name,
+			&i.Rules,
+			&i.UserViewable,
+			&i.UserEditable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const externalIDHolders = `-- name: ExternalIDHolders :many
@@ -100,6 +409,106 @@ func (q *Queries) ExternalIDHolders(ctx context.Context, arg ExternalIDHoldersPa
 	return items, nil
 }
 
+const insertDatabase = `-- name: InsertDatabase :execlastid
+INSERT INTO ` + "`" + `databases` + "`" + ` (server_id, database_host_id, ` + "`" + `database` + "`" + `, username, remote, password, max_connections, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, '', 0, ?, ?)
+`
+
+type InsertDatabaseParams struct {
+	ServerID       uint32
+	DatabaseHostID uint32
+	Database       string
+	Username       string
+	Remote         string
+	CreatedAt      sql.NullTime
+	UpdatedAt      sql.NullTime
+}
+
+// The password column is NOT NULL but holds nothing: the password is sealed in raptor_secrets.
+func (q *Queries) InsertDatabase(ctx context.Context, arg InsertDatabaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertDatabase,
+		arg.ServerID,
+		arg.DatabaseHostID,
+		arg.Database,
+		arg.Username,
+		arg.Remote,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+const insertServer = `-- name: InsertServer :execlastid
+INSERT INTO servers (uuid, uuidShort, external_id, node_id, name, description, status, skip_scripts, owner_id, memory, swap, disk, io, cpu, threads, oom_disabled,
+                     allocation_id, nest_id, egg_id, startup, image, allocation_limit, database_limit, backup_limit, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, 'installing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertServerParams struct {
+	Uuid            string
+	Uuidshort       string
+	ExternalID      sql.NullString
+	NodeID          uint32
+	Name            string
+	Description     string
+	SkipScripts     bool
+	OwnerID         uint32
+	Memory          uint32
+	Swap            int32
+	Disk            uint32
+	Io              uint32
+	Cpu             uint32
+	Threads         sql.NullString
+	OomDisabled     uint8
+	AllocationID    uint32
+	NestID          uint32
+	EggID           uint32
+	Startup         string
+	Image           string
+	AllocationLimit sql.NullInt32
+	DatabaseLimit   sql.NullInt32
+	BackupLimit     uint32
+	CreatedAt       sql.NullTime
+	UpdatedAt       sql.NullTime
+}
+
+func (q *Queries) InsertServer(ctx context.Context, arg InsertServerParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertServer,
+		arg.Uuid,
+		arg.Uuidshort,
+		arg.ExternalID,
+		arg.NodeID,
+		arg.Name,
+		arg.Description,
+		arg.SkipScripts,
+		arg.OwnerID,
+		arg.Memory,
+		arg.Swap,
+		arg.Disk,
+		arg.Io,
+		arg.Cpu,
+		arg.Threads,
+		arg.OomDisabled,
+		arg.AllocationID,
+		arg.NestID,
+		arg.EggID,
+		arg.Startup,
+		arg.Image,
+		arg.AllocationLimit,
+		arg.DatabaseLimit,
+		arg.BackupLimit,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
 const lockAllocation = `-- name: LockAllocation :one
 SELECT id, server_id
 FROM allocations
@@ -124,6 +533,86 @@ func (q *Queries) LockAllocation(ctx context.Context, arg LockAllocationParams) 
 	return i, err
 }
 
+const lockAllocationsByID = `-- name: LockAllocationsByID :many
+SELECT id, node_id, server_id
+FROM allocations
+WHERE id IN (/*SLICE:ids*/?)
+ORDER BY id
+FOR UPDATE
+`
+
+type LockAllocationsByIDRow struct {
+	ID       uint32
+	NodeID   uint32
+	ServerID sql.NullInt32
+}
+
+func (q *Queries) LockAllocationsByID(ctx context.Context, ids []uint32) ([]LockAllocationsByIDRow, error) {
+	query := lockAllocationsByID
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockAllocationsByIDRow
+	for rows.Next() {
+		var i LockAllocationsByIDRow
+		if err := rows.Scan(&i.ID, &i.NodeID, &i.ServerID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockDatabase = `-- name: LockDatabase :one
+SELECT id
+FROM ` + "`" + `databases` + "`" + `
+WHERE id = ?
+FOR UPDATE
+`
+
+func (q *Queries) LockDatabase(ctx context.Context, id uint32) (uint32, error) {
+	row := q.db.QueryRowContext(ctx, lockDatabase, id)
+	var id_2 uint32
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const lockDatabaseOfServer = `-- name: LockDatabaseOfServer :one
+SELECT id
+FROM ` + "`" + `databases` + "`" + `
+WHERE id = ? AND server_id = ?
+FOR UPDATE
+`
+
+type LockDatabaseOfServerParams struct {
+	ID       uint32
+	ServerID uint32
+}
+
+func (q *Queries) LockDatabaseOfServer(ctx context.Context, arg LockDatabaseOfServerParams) (uint32, error) {
+	row := q.db.QueryRowContext(ctx, lockDatabaseOfServer, arg.ID, arg.ServerID)
+	var id uint32
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockLocation = `-- name: LockLocation :one
 SELECT id
 FROM locations
@@ -138,6 +627,40 @@ func (q *Queries) LockLocation(ctx context.Context, id uint32) (uint32, error) {
 	return id_2, err
 }
 
+const lockNode = `-- name: LockNode :one
+SELECT id, uuid, daemon_token_id
+FROM nodes
+WHERE id = ?
+FOR UPDATE
+`
+
+type LockNodeRow struct {
+	ID            uint32
+	Uuid          string
+	DaemonTokenID string
+}
+
+func (q *Queries) LockNode(ctx context.Context, id uint32) (LockNodeRow, error) {
+	row := q.db.QueryRowContext(ctx, lockNode, id)
+	var i LockNodeRow
+	err := row.Scan(&i.ID, &i.Uuid, &i.DaemonTokenID)
+	return i, err
+}
+
+const lockServerDatabaseLimit = `-- name: LockServerDatabaseLimit :one
+SELECT database_limit
+FROM servers
+WHERE id = ?
+FOR UPDATE
+`
+
+func (q *Queries) LockServerDatabaseLimit(ctx context.Context, id uint32) (sql.NullInt32, error) {
+	row := q.db.QueryRowContext(ctx, lockServerDatabaseLimit, id)
+	var database_limit sql.NullInt32
+	err := row.Scan(&database_limit)
+	return database_limit, err
+}
+
 const nodeExists = `-- name: NodeExists :one
 SELECT COUNT(*)
 FROM nodes
@@ -149,6 +672,113 @@ func (q *Queries) NodeExists(ctx context.Context, id uint32) (int64, error) {
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const nodeForConfig = `-- name: NodeForConfig :one
+SELECT uuid, fqdn, scheme, behind_proxy, daemonBase, daemonSFTP, daemonListen, upload_size, daemon_token_id
+FROM nodes
+WHERE id = ?
+`
+
+type NodeForConfigRow struct {
+	Uuid          string
+	Fqdn          string
+	Scheme        string
+	BehindProxy   bool
+	Daemonbase    string
+	Daemonsftp    uint16
+	Daemonlisten  uint16
+	UploadSize    uint32
+	DaemonTokenID string
+}
+
+func (q *Queries) NodeForConfig(ctx context.Context, id uint32) (NodeForConfigRow, error) {
+	row := q.db.QueryRowContext(ctx, nodeForConfig, id)
+	var i NodeForConfigRow
+	err := row.Scan(
+		&i.Uuid,
+		&i.Fqdn,
+		&i.Scheme,
+		&i.BehindProxy,
+		&i.Daemonbase,
+		&i.Daemonsftp,
+		&i.Daemonlisten,
+		&i.UploadSize,
+		&i.DaemonTokenID,
+	)
+	return i, err
+}
+
+const releaseAllAllocationsOfServer = `-- name: ReleaseAllAllocationsOfServer :exec
+UPDATE allocations
+SET server_id = NULL, notes = NULL
+WHERE server_id = ?
+`
+
+func (q *Queries) ReleaseAllAllocationsOfServer(ctx context.Context, serverID sql.NullInt32) error {
+	_, err := q.db.ExecContext(ctx, releaseAllAllocationsOfServer, serverID)
+	return err
+}
+
+const releaseAllocationsOfServer = `-- name: ReleaseAllocationsOfServer :exec
+UPDATE allocations
+SET server_id = NULL, notes = NULL
+WHERE id IN (/*SLICE:ids*/?) AND server_id = ?
+`
+
+type ReleaseAllocationsOfServerParams struct {
+	Ids      []uint32
+	ServerID sql.NullInt32
+}
+
+func (q *Queries) ReleaseAllocationsOfServer(ctx context.Context, arg ReleaseAllocationsOfServerParams) error {
+	query := releaseAllocationsOfServer
+	var queryParams []interface{}
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ServerID)
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
+const serverNodeAndUUID = `-- name: ServerNodeAndUUID :one
+SELECT uuid, node_id
+FROM servers
+WHERE id = ?
+`
+
+type ServerNodeAndUUIDRow struct {
+	Uuid   string
+	NodeID uint32
+}
+
+func (q *Queries) ServerNodeAndUUID(ctx context.Context, id uint32) (ServerNodeAndUUIDRow, error) {
+	row := q.db.QueryRowContext(ctx, serverNodeAndUUID, id)
+	var i ServerNodeAndUUIDRow
+	err := row.Scan(&i.Uuid, &i.NodeID)
+	return i, err
+}
+
+const touchDatabase = `-- name: TouchDatabase :exec
+UPDATE ` + "`" + `databases` + "`" + `
+SET updated_at = ?
+WHERE id = ?
+`
+
+type TouchDatabaseParams struct {
+	UpdatedAt sql.NullTime
+	ID        uint32
+}
+
+func (q *Queries) TouchDatabase(ctx context.Context, arg TouchDatabaseParams) error {
+	_, err := q.db.ExecContext(ctx, touchDatabase, arg.UpdatedAt, arg.ID)
+	return err
 }
 
 const updateLocation = `-- name: UpdateLocation :execrows
@@ -175,6 +805,172 @@ func (q *Queries) UpdateLocation(ctx context.Context, arg UpdateLocationParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateNodeSettings = `-- name: UpdateNodeSettings :exec
+UPDATE nodes
+SET public = ?, name = ?, description = ?, location_id = ?, fqdn = ?, scheme = ?, behind_proxy = ?, maintenance_mode = ?, memory = ?, memory_overallocate = ?,
+    disk = ?, disk_overallocate = ?, upload_size = ?, daemonListen = ?, daemonSFTP = ?, daemonBase = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateNodeSettingsParams struct {
+	Public             uint16
+	Name               string
+	Description        sql.NullString
+	LocationID         uint32
+	Fqdn               string
+	Scheme             string
+	BehindProxy        bool
+	MaintenanceMode    bool
+	Memory             uint32
+	MemoryOverallocate int32
+	Disk               uint32
+	DiskOverallocate   int32
+	UploadSize         uint32
+	Daemonlisten       uint16
+	Daemonsftp         uint16
+	Daemonbase         string
+	UpdatedAt          sql.NullTime
+	ID                 uint32
+}
+
+func (q *Queries) UpdateNodeSettings(ctx context.Context, arg UpdateNodeSettingsParams) error {
+	_, err := q.db.ExecContext(ctx, updateNodeSettings,
+		arg.Public,
+		arg.Name,
+		arg.Description,
+		arg.LocationID,
+		arg.Fqdn,
+		arg.Scheme,
+		arg.BehindProxy,
+		arg.MaintenanceMode,
+		arg.Memory,
+		arg.MemoryOverallocate,
+		arg.Disk,
+		arg.DiskOverallocate,
+		arg.UploadSize,
+		arg.Daemonlisten,
+		arg.Daemonsftp,
+		arg.Daemonbase,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateNodeTokenID = `-- name: UpdateNodeTokenID :exec
+UPDATE nodes
+SET daemon_token_id = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateNodeTokenIDParams struct {
+	DaemonTokenID string
+	UpdatedAt     sql.NullTime
+	ID            uint32
+}
+
+func (q *Queries) UpdateNodeTokenID(ctx context.Context, arg UpdateNodeTokenIDParams) error {
+	_, err := q.db.ExecContext(ctx, updateNodeTokenID, arg.DaemonTokenID, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const updateServerBuild = `-- name: UpdateServerBuild :exec
+UPDATE servers
+SET memory = ?, swap = ?, disk = ?, io = ?, cpu = ?, threads = ?, oom_disabled = ?, database_limit = ?, allocation_limit = ?, backup_limit = ?, allocation_id = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateServerBuildParams struct {
+	Memory          uint32
+	Swap            int32
+	Disk            uint32
+	Io              uint32
+	Cpu             uint32
+	Threads         sql.NullString
+	OomDisabled     uint8
+	DatabaseLimit   sql.NullInt32
+	AllocationLimit sql.NullInt32
+	BackupLimit     uint32
+	AllocationID    uint32
+	UpdatedAt       sql.NullTime
+	ID              uint32
+}
+
+func (q *Queries) UpdateServerBuild(ctx context.Context, arg UpdateServerBuildParams) error {
+	_, err := q.db.ExecContext(ctx, updateServerBuild,
+		arg.Memory,
+		arg.Swap,
+		arg.Disk,
+		arg.Io,
+		arg.Cpu,
+		arg.Threads,
+		arg.OomDisabled,
+		arg.DatabaseLimit,
+		arg.AllocationLimit,
+		arg.BackupLimit,
+		arg.AllocationID,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateServerDetails = `-- name: UpdateServerDetails :exec
+UPDATE servers
+SET external_id = ?, owner_id = ?, name = ?, description = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateServerDetailsParams struct {
+	ExternalID  sql.NullString
+	OwnerID     uint32
+	Name        string
+	Description string
+	UpdatedAt   sql.NullTime
+	ID          uint32
+}
+
+func (q *Queries) UpdateServerDetails(ctx context.Context, arg UpdateServerDetailsParams) error {
+	_, err := q.db.ExecContext(ctx, updateServerDetails,
+		arg.ExternalID,
+		arg.OwnerID,
+		arg.Name,
+		arg.Description,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateServerStartup = `-- name: UpdateServerStartup :exec
+UPDATE servers
+SET startup = ?, egg_id = ?, nest_id = ?, image = ?, skip_scripts = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateServerStartupParams struct {
+	Startup     string
+	EggID       uint32
+	NestID      uint32
+	Image       string
+	SkipScripts bool
+	UpdatedAt   sql.NullTime
+	ID          uint32
+}
+
+func (q *Queries) UpdateServerStartup(ctx context.Context, arg UpdateServerStartupParams) error {
+	_, err := q.db.ExecContext(ctx, updateServerStartup,
+		arg.Startup,
+		arg.EggID,
+		arg.NestID,
+		arg.Image,
+		arg.SkipScripts,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
 }
 
 const updateUserFields = `-- name: UpdateUserFields :execrows
@@ -213,4 +1009,35 @@ func (q *Queries) UpdateUserFields(ctx context.Context, arg UpdateUserFieldsPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const userCount = `-- name: UserCount :one
+SELECT COUNT(*)
+FROM users
+WHERE id = ?
+`
+
+func (q *Queries) UserCount(ctx context.Context, id uint32) (int64, error) {
+	row := q.db.QueryRowContext(ctx, userCount, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const variableOfEgg = `-- name: VariableOfEgg :one
+SELECT id
+FROM egg_variables
+WHERE egg_id = ? AND env_variable = ?
+`
+
+type VariableOfEggParams struct {
+	EggID       uint32
+	EnvVariable string
+}
+
+func (q *Queries) VariableOfEgg(ctx context.Context, arg VariableOfEggParams) (uint32, error) {
+	row := q.db.QueryRowContext(ctx, variableOfEgg, arg.EggID, arg.EnvVariable)
+	var id uint32
+	err := row.Scan(&id)
+	return id, err
 }

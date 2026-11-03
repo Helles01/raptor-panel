@@ -18,7 +18,11 @@ type Querier interface {
 	// A user's own account: e-mail, password, two-factor authentication, API keys and SSH keys.
 	AccountForSettings(ctx context.Context, id uint32) (AccountForSettingsRow, error)
 	AccountSSHKeys(ctx context.Context, userID uint32) ([]AccountSSHKeysRow, error)
+	AllocationsOfNodes(ctx context.Context, ids []uint32) ([]AllocationsOfNodesRow, error)
 	AllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]AllocationsOfServersRow, error)
+	AllowedMountsOfNode(ctx context.Context, nodeID uint32) ([]string, error)
+	// The allocations are given to the server only if they are still free; the caller compares the number of rows with the number it asked for.
+	AssignAllocations(ctx context.Context, arg AssignAllocationsParams) (int64, error)
 	BackupOfNode(ctx context.Context, arg BackupOfNodeParams) (BackupOfNodeRow, error)
 	ClearTwoFactor(ctx context.Context, id uint32) (int64, error)
 	ClientAllocationsOfServers(ctx context.Context, ids []sql.NullInt32) ([]ClientAllocationsOfServersRow, error)
@@ -26,6 +30,7 @@ type Querier interface {
 	// Only a backup that has not ended can be ended.
 	CompleteBackup(ctx context.Context, arg CompleteBackupParams) (int64, error)
 	CountAccountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
+	CountDatabasesOfServer(ctx context.Context, serverID uint32) (int64, error)
 	CountDatabasesOnHost(ctx context.Context, databaseHostID uint32) (int64, error)
 	CountKeysOfUser(ctx context.Context, userID uint32) (int64, error)
 	CountNodesOfLocation(ctx context.Context, locationID uint32) (int64, error)
@@ -33,21 +38,28 @@ type Querier interface {
 	CountSSHKeysWithFingerprint(ctx context.Context, arg CountSSHKeysWithFingerprintParams) (int64, error)
 	CountServerVariableRows(ctx context.Context, arg CountServerVariableRowsParams) (int64, error)
 	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
+	CountServersOnNode(ctx context.Context, nodeID uint32) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
+	DatabaseHostChoices(ctx context.Context) ([]DatabaseHostChoicesRow, error)
+	DatabaseHostExists(ctx context.Context, id uint32) (int64, error)
+	DatabaseIDsOfServer(ctx context.Context, serverID uint32) ([]uint32, error)
 	DeleteAPIKey(ctx context.Context, id uint32) error
 	DeleteAllocation(ctx context.Context, id uint32) error
 	DeleteApplicationKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeleteApplicationKeysOfUser(ctx context.Context, userID uint32) error
 	DeleteDatabaseHost(ctx context.Context, id uint32) (int64, error)
+	DeleteDatabaseRow(ctx context.Context, id uint32) (int64, error)
 	DeleteJob(ctx context.Context, id uint64) error
 	DeleteKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeleteLocation(ctx context.Context, id uint32) error
+	DeleteNode(ctx context.Context, id uint32) error
 	DeletePasswordResets(ctx context.Context, email string) (int64, error)
 	// One use: only the request that deletes the row may use the token.
 	DeleteRecoveryToken(ctx context.Context, id uint64) (int64, error)
 	DeleteRecoveryTokensOfUser(ctx context.Context, userID uint32) error
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) error
 	DeleteSecretsOfRow(ctx context.Context, arg DeleteSecretsOfRowParams) error
+	DeleteServerRow(ctx context.Context, id uint32) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionsForUser(ctx context.Context, userID sql.NullInt32) error
 	DeleteSessionsForUserExcept(ctx context.Context, arg DeleteSessionsForUserExceptParams) error
@@ -55,6 +67,8 @@ type Querier interface {
 	// Several processes may claim at once: a row that another transaction has locked is skipped, not waited for.
 	DueJobs(ctx context.Context, arg DueJobsParams) ([]DueJobsRow, error)
 	EggImagesOfServer(ctx context.Context, id uint32) (sql.NullString, error)
+	EggNest(ctx context.Context, id uint32) (uint32, error)
+	EggVariablesForRules(ctx context.Context, eggID uint32) ([]EggVariablesForRulesRow, error)
 	EnableTwoFactor(ctx context.Context, arg EnableTwoFactorParams) (int64, error)
 	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) error
@@ -71,6 +85,8 @@ type Querier interface {
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (int64, error)
 	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) (int64, error)
 	InsertActivitySubject(ctx context.Context, arg InsertActivitySubjectParams) error
+	// The password column is NOT NULL but holds nothing: the password is sealed in raptor_secrets.
+	InsertDatabase(ctx context.Context, arg InsertDatabaseParams) (int64, error)
 	InsertDatabaseHost(ctx context.Context, arg InsertDatabaseHostParams) (int64, error)
 	InsertEgg(ctx context.Context, arg InsertEggParams) (int64, error)
 	InsertEggVariable(ctx context.Context, arg InsertEggVariableParams) error
@@ -80,6 +96,7 @@ type Querier interface {
 	InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error
 	InsertRecoveryToken(ctx context.Context, arg InsertRecoveryTokenParams) error
 	InsertSSHKey(ctx context.Context, arg InsertSSHKeyParams) (int64, error)
+	InsertServer(ctx context.Context, arg InsertServerParams) (int64, error)
 	InsertServerVariable(ctx context.Context, arg InsertServerVariableParams) error
 	// What the administrator's commands read and write: users, API keys, locations, nodes, nests, eggs, settings and database hosts.
 	InsertUser(ctx context.Context, arg InsertUserParams) (int64, error)
@@ -97,18 +114,24 @@ type Querier interface {
 	LocationExists(ctx context.Context, id uint32) (int64, error)
 	LockAccountKey(ctx context.Context, arg LockAccountKeyParams) (LockAccountKeyRow, error)
 	LockAllocation(ctx context.Context, arg LockAllocationParams) (LockAllocationRow, error)
+	LockAllocationsByID(ctx context.Context, ids []uint32) ([]LockAllocationsByIDRow, error)
+	LockDatabase(ctx context.Context, id uint32) (uint32, error)
 	LockDatabaseHost(ctx context.Context, id uint32) (LockDatabaseHostRow, error)
+	LockDatabaseOfServer(ctx context.Context, arg LockDatabaseOfServerParams) (uint32, error)
 	LockLocation(ctx context.Context, id uint32) (uint32, error)
+	LockNode(ctx context.Context, id uint32) (LockNodeRow, error)
 	LockOpenTransfer(ctx context.Context, serverID uint32) (LockOpenTransferRow, error)
 	LockSSHKey(ctx context.Context, arg LockSSHKeyParams) (LockSSHKeyRow, error)
 	// What a server's owner changes about it: its startup variables, its image and its name.
 	LockServer(ctx context.Context, id uint32) (uint32, error)
+	LockServerDatabaseLimit(ctx context.Context, id uint32) (sql.NullInt32, error)
 	LockUser(ctx context.Context, id uint32) (uint32, error)
 	MountsOfServers(ctx context.Context, ids []uint32) ([]MountsOfServersRow, error)
 	MoveServer(ctx context.Context, arg MoveServerParams) error
 	NestExists(ctx context.Context, id uint32) (int64, error)
 	NodeByTokenID(ctx context.Context, daemonTokenID string) (NodeByTokenIDRow, error)
 	NodeExists(ctx context.Context, id uint32) (int64, error)
+	NodeForConfig(ctx context.Context, id uint32) (NodeForConfigRow, error)
 	NodeForDaemon(ctx context.Context, id uint32) (NodeForDaemonRow, error)
 	NodeOrigins(ctx context.Context) ([]NodeOriginsRow, error)
 	NodesOfUser(ctx context.Context, arg NodesOfUserParams) ([]uint32, error)
@@ -117,7 +140,9 @@ type Querier interface {
 	PeopleByID(ctx context.Context, ids []uint32) ([]PeopleByIDRow, error)
 	PutSession(ctx context.Context, arg PutSessionParams) error
 	RecoveryTokensForUser(ctx context.Context, userID uint32) ([]RecoveryTokensForUserRow, error)
+	ReleaseAllAllocationsOfServer(ctx context.Context, serverID sql.NullInt32) error
 	ReleaseAllocations(ctx context.Context, ids []uint32) error
+	ReleaseAllocationsOfServer(ctx context.Context, arg ReleaseAllocationsOfServerParams) error
 	RenameServer(ctx context.Context, arg RenameServerParams) (int64, error)
 	ResetServerStatus(ctx context.Context, arg ResetServerStatusParams) (int64, error)
 	ResetTotpAuthentication(ctx context.Context, id uint32) error
@@ -128,6 +153,7 @@ type Querier interface {
 	ServerByUUID(ctx context.Context, uuid string) (ServerByUUIDRow, error)
 	ServerForNodeByUUID(ctx context.Context, uuid string) (ServerForNodeByUUIDRow, error)
 	ServerIDsOfNode(ctx context.Context, arg ServerIDsOfNodeParams) ([]ServerIDsOfNodeRow, error)
+	ServerNodeAndUUID(ctx context.Context, id uint32) (ServerNodeAndUUIDRow, error)
 	// The servers a node holds, a page at a time, with what their configuration needs from the same row and from the node, the location and the egg
 	// (and the egg it takes its process configuration from, if any).
 	ServersOfNode(ctx context.Context, arg ServersOfNodeParams) ([]ServersOfNodeRow, error)
@@ -145,8 +171,14 @@ type Querier interface {
 	// What the node's API (Wings) and the control routes read and write about servers.
 	TargetOfServer(ctx context.Context, id uint32) (TargetOfServerRow, error)
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
+	TouchDatabase(ctx context.Context, arg TouchDatabaseParams) error
 	UpdateDatabaseHost(ctx context.Context, arg UpdateDatabaseHostParams) error
 	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (int64, error)
+	UpdateNodeSettings(ctx context.Context, arg UpdateNodeSettingsParams) error
+	UpdateNodeTokenID(ctx context.Context, arg UpdateNodeTokenIDParams) error
+	UpdateServerBuild(ctx context.Context, arg UpdateServerBuildParams) error
+	UpdateServerDetails(ctx context.Context, arg UpdateServerDetailsParams) error
+	UpdateServerStartup(ctx context.Context, arg UpdateServerStartupParams) error
 	UpdateServerVariable(ctx context.Context, arg UpdateServerVariableParams) (int64, error)
 	// The Application API's writes of users, locations and allocations.
 	UpdateUserFields(ctx context.Context, arg UpdateUserFieldsParams) (int64, error)
@@ -159,10 +191,12 @@ type Querier interface {
 	UserByID(ctx context.Context, id uint32) (UserByIDRow, error)
 	// The columns use utf8mb4_unicode_ci, so a name and an address are compared without regard to case.
 	UserByUsername(ctx context.Context, username string) (UserByUsernameRow, error)
+	UserCount(ctx context.Context, id uint32) (int64, error)
 	UserEmail(ctx context.Context, id uint32) (string, error)
 	UserForSFTP(ctx context.Context, username string) (UserForSFTPRow, error)
 	UserIDsByUUID(ctx context.Context, uuids []string) ([]UserIDsByUUIDRow, error)
 	UserUUID(ctx context.Context, id uint32) (string, error)
+	VariableOfEgg(ctx context.Context, arg VariableOfEggParams) (uint32, error)
 	VariableOfServer(ctx context.Context, arg VariableOfServerParams) (uint32, error)
 	VariablesOfServers(ctx context.Context, ids []uint32) ([]VariablesOfServersRow, error)
 }

@@ -120,3 +120,27 @@ returned), the `config_from` join, the email-only effect.
 ## Still to do in the SQL layer (19 of 66)
 The nodes of the Application API (8 methods; the node record itself is read already), the servers (15: create with the choice of allocations, the build, the startup, the details with an owner change, suspension, delete),
 the server databases (6), `allocapi`, `subuserapi`, `scheduleapi` and `schedules`, `backupapi`, `databaseapi`, `maintenance` and the small `ActivityLog` of each of those packages.
+
+## Sixth part (2026-11-03): the Application API, second half
+`store.AppNodes`, `AppServers`, `AppServerDatabases` and `ClientDatabases` (4 more interfaces, 51 of 66). The two database stores are one piece of code (`serverDatabases`) with two thin adapters, because
+the administrator and the owner do the same things with different types and errors.
+
+- **A transaction that locks first.** MariaDB 11.6.2 and later refuse (error 1020, "Record has changed since last read") to lock or change a row that another request changed after the transaction's snapshot, and the
+  snapshot is fixed by the first plain read. Creating a server read the owner and the egg before it locked the allocations, and 9 of 10 concurrent requests for one allocation died with 1020. The rule now: **the
+  rows the decision depends on are locked before anything else is read**, and 1020 is retried like a deadlock (the second attempt starts with a new snapshot). The isolation level was *not* changed: the
+  `users.external_id` rule relies on the gap locks of `REPEATABLE READ`, which `READ COMMITTED` does not take.
+- **A node's token and its id are one change.** New credentials replace the sealed token and `daemon_token_id` in the transaction of the settings; the old token id finds nothing at once. A node without a sealed token
+  (a migrated one, until `raptor migrate-secrets`) is reported by its configuration and its connection, not answered with an empty token.
+- **Creating a server** locks the allocations named (the primary and the extra ones), hands them to the check (`Check` sees who holds them), stores the server on the node of the primary allocation and assigns all of
+  them or none; of 10 requests at once for one free allocation, one wins and the others get the check's answer. Deleting releases the allocations with their notes cleared and the rest goes through the cascades.
+  **A server that still has databases is not deleted**: the rows of a database go after the database itself is dropped on its host, and removing them in the server's delete would leave it there with nothing pointing to it
+  (the handler deletes them one by one first, as the reference does).
+- **The short identifier is read from `uuidShort`**, not derived from the uuid: a test that stored a different one caught it.
+- **A database's limit is checked with the server's row locked**: of 12 requests at once for a server that may have one more, one is made. The password is sealed in `raptor_secrets`; the column keeps an empty string.
+  A taken name is `ErrNameTaken`; a taken generated user name is a plain error (the request can be made again, it makes another).
+
+Tests: `appservers_integration_test.go` (4), `appdatabases_integration_test.go` (3), plus `TestAppNodes`. Mutants killed: the count check of the allocations a server takes, the order to the previous owner, the sealing of a
+node's new token, its removal with the node, the release of a deleted server's allocations, the lock of the database limit, the server check of a database's removal.
+
+## Still to do in the SQL layer (15 of 66)
+`allocapi`, `subuserapi`, `scheduleapi` and `schedules`, `backupapi`, `maintenance` and the small `ActivityLog` of each of those packages (and the `ActivityLog` of the database routes).

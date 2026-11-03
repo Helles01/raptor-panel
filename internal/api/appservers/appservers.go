@@ -96,8 +96,8 @@ type Store interface {
 	Transferring(ctx context.Context, id uint64) (bool, error)
 	// SetStatus changes the status from one value to another in one statement: false means the server did not have the status.
 	SetStatus(ctx context.Context, id uint64, from, to string) (bool, error)
-	// Databases lists the databases of a server, DeleteDatabase removes the row of one, and Delete the server: its allocations are
-	// released with their notes cleared, and its rows go.
+	// Databases lists the databases of a server, DeleteDatabase removes the row of one with its sealed password, and Delete the server, which has
+	// none left: its allocations are released with their notes cleared, and its rows go.
 	Databases(ctx context.Context, serverID uint64) ([]appkit.ServerDatabase, error)
 	DeleteDatabase(ctx context.Context, id uint64) error
 	Delete(ctx context.Context, id uint64) error
