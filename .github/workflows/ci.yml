@@ -19,7 +19,7 @@ jobs:
         run: |
           . ./versions.env
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
-      - run: scripts/check.sh
+      - run: bash scripts/check.sh
 
   frontend:
     runs-on: ubuntu-latest
@@ -34,4 +34,4 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm install --global "yarn@${YARN_VERSION}"
-      - run: scripts/frontend-check.sh
+      - run: bash scripts/frontend-check.sh
