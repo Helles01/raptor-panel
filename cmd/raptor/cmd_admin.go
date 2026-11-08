@@ -20,7 +20,7 @@ import (
 // adminGroups are the commands of the administrator: `raptor user create …`, `raptor dbhost list`, and so on. The names are listed from a table
 // made with services that are never called, so that help and a mistyped name need no database.
 func adminGroups() map[string]map[string]admincli.Handler {
-	return admincli.All(admincli.Services{Admin: &admin.Service{}, Hosts: &admin.HostService{}, Directory: &admin.Directory{}})
+	return admincli.All(admincli.Services{Admin: &admin.Service{}, Hosts: &admin.HostService{}, Directory: &admin.Directory{}, Rotation: &admin.Rotation{}})
 }
 
 func adminCommand(group string) handler {
@@ -121,7 +121,12 @@ func openAdminServices(ctx context.Context, e *env) (admincli.Services, func(), 
 		closeAll()
 		return admincli.Services{}, nil, err
 	}
-	return admincli.Services{Admin: svc, Hosts: hosts, Directory: dir}, closeAll, nil
+	rotation, err := admin.NewRotation(st.AdminRotation(), cfg.App.URL, nil)
+	if err != nil {
+		closeAll()
+		return admincli.Services{}, nil, err
+	}
+	return admincli.Services{Admin: svc, Hosts: hosts, Directory: dir, Rotation: rotation}, closeAll, nil
 }
 
 // languagesOf lists the languages the panel has translations for ("en", "hu"), sorted.

@@ -16,6 +16,9 @@ type directoryStore struct {
 	asked    []*uint64
 	settings map[string]string
 	reads    int
+	// kinds is what DeleteKeys was asked to remove, in order; deleteErr is what it answers.
+	kinds     []*auth.KeyType
+	deleteErr error
 }
 
 func (s *directoryStore) ListUsers(context.Context) ([]User, error) { return s.users, nil }
@@ -48,6 +51,24 @@ func (s *directoryStore) DeleteKey(_ context.Context, identifier string) (KeyInf
 		}
 	}
 	return KeyInfo{}, ErrNotFound
+}
+
+func (s *directoryStore) DeleteKeys(_ context.Context, kind *auth.KeyType) (int64, error) {
+	s.kinds = append(s.kinds, kind)
+	if s.deleteErr != nil {
+		return 0, s.deleteErr
+	}
+	var kept []KeyInfo
+	var n int64
+	for _, k := range s.keys {
+		if kind == nil || k.Type == *kind {
+			n++
+		} else {
+			kept = append(kept, k)
+		}
+	}
+	s.keys = kept
+	return n, nil
 }
 
 func (s *directoryStore) ListLocations(context.Context) ([]LocationInfo, error) {
@@ -166,5 +187,65 @@ func TestDirectoryLists(t *testing.T) {
 	}
 	if _, err := NewDirectory(nil); err == nil {
 		t.Error("no store accepted")
+	}
+}
+
+// Without the go-ahead nothing is removed, and the answer says how many keys would go.
+func TestRevokeKeysWantsTheGoAhead(t *testing.T) {
+	for kind, want := range map[string]int64{"": 3, "account": 2, "application": 1} {
+		d, st := newDirectory(t)
+		n, err := d.RevokeKeys(context.Background(), kind, false)
+		var nc *NotConfirmedError
+		if !errors.As(err, &nc) || nc.Count != want || n != 0 {
+			t.Fatalf("kind %q: n = %d, err = %v", kind, n, err)
+		}
+		if len(st.kinds) != 0 || len(st.keys) != 3 {
+			t.Errorf("kind %q: keys were removed (%d left, asked %v)", kind, len(st.keys), st.kinds)
+		}
+		if !strings.Contains(err.Error(), "--yes") {
+			t.Errorf("the answer does not say how to go ahead: %v", err)
+		}
+	}
+}
+
+func TestRevokeKeys(t *testing.T) {
+	d, st := newDirectory(t)
+	n, err := d.RevokeKeys(context.Background(), "account", true)
+	if err != nil || n != 2 || len(st.keys) != 1 || st.keys[0].Type != auth.KeyApplication {
+		t.Fatalf("account keys: n = %d, err = %v, left %v", n, err, st.keys)
+	}
+	if len(st.kinds) != 1 || st.kinds[0] == nil || *st.kinds[0] != auth.KeyAccount {
+		t.Errorf("asked %v", st.kinds)
+	}
+
+	n, err = d.RevokeKeys(context.Background(), "", true)
+	if err != nil || n != 1 || len(st.keys) != 0 || st.kinds[1] != nil {
+		t.Fatalf("every key: n = %d, err = %v, asked %v", n, err, st.kinds)
+	}
+	// Nothing left is not an error: the command can be run again.
+	if n, err := d.RevokeKeys(context.Background(), "", true); err != nil || n != 0 {
+		t.Errorf("again: n = %d, err = %v", n, err)
+	}
+
+	d, st = newDirectory(t)
+	if n, err := d.RevokeKeys(context.Background(), "application", true); err != nil || n != 1 || len(st.keys) != 2 {
+		t.Errorf("application keys: n = %d, err = %v", n, err)
+	}
+}
+
+func TestRevokeKeysRefusesAKindItDoesNotKnow(t *testing.T) {
+	for _, kind := range []string{"Account", "all", "ptlc", " account", "applications"} {
+		d, st := newDirectory(t)
+		if _, err := d.RevokeKeys(context.Background(), kind, true); err == nil || len(st.kinds) != 0 || len(st.keys) != 3 {
+			t.Errorf("kind %q: err = %v, asked %v", kind, err, st.kinds)
+		}
+	}
+}
+
+func TestRevokeKeysPassesTheStoresErrorsOn(t *testing.T) {
+	d, st := newDirectory(t)
+	st.deleteErr = errBoom
+	if _, err := d.RevokeKeys(context.Background(), "", true); !errors.Is(err, errBoom) {
+		t.Errorf("err = %v", err)
 	}
 }

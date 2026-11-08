@@ -54,6 +54,9 @@ type DirectoryStore interface {
 	ListKeys(ctx context.Context, userID *uint64) ([]KeyInfo, error)
 	// DeleteKey removes the key with the identifier and says which it was, or answers ErrNotFound.
 	DeleteKey(ctx context.Context, identifier string) (KeyInfo, error)
+	// DeleteKeys removes every key of the kind, or every key when kind is nil, with the secrets sealed for them, in one transaction, and says
+	// how many there were.
+	DeleteKeys(ctx context.Context, kind *auth.KeyType) (int64, error)
 	ListLocations(ctx context.Context) ([]LocationInfo, error)
 	ListNodes(ctx context.Context) ([]NodeInfo, error)
 	// Setting returns the value stored for a key of settings.Keys, and whether there is one.
@@ -97,6 +100,46 @@ func (d *Directory) RevokeKey(ctx context.Context, identifier string) (KeyInfo, 
 	}
 	return d.store.DeleteKey(ctx, identifier)
 }
+
+// NotConfirmedError is what RevokeKeys answers when it was not told to go ahead: nothing was removed, and Count is how many keys it
+// would have removed.
+type NotConfirmedError struct{ Count int64 }
+
+func (e *NotConfirmedError) Error() string {
+	return fmt.Sprintf("%d key(s) would be revoked and nothing was removed: repeat the command with --yes to revoke them", e.Count)
+}
+
+// RevokeKeys removes every key, or every key of a kind ("account" or "application", empty for both), because the raw value of the keys was
+// recoverable with the old application key and they count as compromised (plan 13.3). It says how many went. Unless confirmed it removes
+// nothing, and answers a *NotConfirmedError with the number that would go.
+func (d *Directory) RevokeKeys(ctx context.Context, kind string, confirmed bool) (int64, error) {
+	var only *auth.KeyType
+	switch kind {
+	case "":
+	case "account":
+		only = ptrTo(auth.KeyAccount)
+	case "application":
+		only = ptrTo(auth.KeyApplication)
+	default:
+		return 0, errors.New("the kind of a key is account or application")
+	}
+	if !confirmed {
+		keys, err := d.store.ListKeys(ctx, nil)
+		if err != nil {
+			return 0, err
+		}
+		var n int64
+		for _, k := range keys {
+			if only == nil || k.Type == *only {
+				n++
+			}
+		}
+		return 0, &NotConfirmedError{Count: n}
+	}
+	return d.store.DeleteKeys(ctx, only)
+}
+
+func ptrTo[T any](v T) *T { return &v }
 
 // Locations lists the locations.
 func (d *Directory) Locations(ctx context.Context) ([]LocationInfo, error) {

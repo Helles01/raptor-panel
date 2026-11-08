@@ -156,3 +156,18 @@ WHERE id = ?;
 -- name: DeleteKeySecretsOfUser :exec
 DELETE FROM raptor_secrets
 WHERE table_name = 'api_keys' AND row_id IN (SELECT id FROM api_keys WHERE user_id = ?);
+
+-- name: DeleteSecretsOfAllAPIKeys :exec
+DELETE FROM raptor_secrets
+WHERE table_name = 'api_keys';
+
+-- name: DeleteSecretsOfAPIKeysOfType :exec
+DELETE FROM raptor_secrets
+WHERE table_name = 'api_keys' AND row_id IN (SELECT id FROM api_keys WHERE key_type = ?);
+
+-- name: DeleteAllAPIKeys :execrows
+DELETE FROM api_keys;
+
+-- name: DeleteAPIKeysOfType :execrows
+DELETE FROM api_keys
+WHERE key_type = ?;

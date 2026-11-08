@@ -23,6 +23,7 @@ type Services struct {
 	Admin     *admin.Service
 	Hosts     *admin.HostService
 	Directory *admin.Directory
+	Rotation  *admin.Rotation
 }
 
 // All returns the commands of every part that is there, by group and name. A group that two parts share ("apikey") has the commands of
@@ -47,6 +48,9 @@ func All(s Services) map[string]map[string]Handler {
 	}
 	if s.Directory != nil {
 		add(directoryCommands(s.Directory))
+	}
+	if s.Rotation != nil {
+		add(rotationCommands(s.Rotation))
 	}
 	return out
 }
@@ -361,9 +365,30 @@ func accessText(access map[string]auth.Access) string {
 }
 
 func (c *dirCmds) revoke(ctx context.Context, e Env, args []string) error {
-	rest, err := parse(flags("apikey revoke"), args, 1)
+	fs := flags("apikey revoke")
+	all := fs.Bool("all", false, "revoke every key instead of one")
+	kind := fs.String("kind", "", "with --all: only the keys of this kind, account or application")
+	yes := fs.Bool("yes", false, "with --all: really revoke them (without it nothing is removed, and the number that would go is shown)")
+	rest, err := parseRange(fs, args, 0, 1)
 	if err != nil {
 		return err
+	}
+	if *all {
+		if len(rest) != 0 {
+			return usagef("apikey revoke: --all takes no identifier")
+		}
+		n, err := c.d.RevokeKeys(ctx, *kind, *yes)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(e.Stderr, "Revoked %d key(s). Their owners have to make new ones.\n", n)
+		return nil
+	}
+	if len(rest) != 1 {
+		return usagef("apikey revoke takes the identifier of a key, or --all")
+	}
+	if *kind != "" || *yes {
+		return usagef("apikey revoke: --kind and --yes are for --all")
 	}
 	k, err := c.d.RevokeKey(ctx, rest[0])
 	if err != nil {
@@ -422,4 +447,33 @@ func (c *dirCmds) setting(ctx context.Context, e Env, args []string) error {
 	}
 	fmt.Fprintln(e.Stdout, cell(value))
 	return nil
+}
+
+// --- replacing secrets
+
+func rotationCommands(r *admin.Rotation) map[string]map[string]Handler {
+	c := &rotationCmds{r: r}
+	return map[string]map[string]Handler{
+		"node": {"rotate-token": c.nodeToken},
+	}
+}
+
+type rotationCmds struct{ r *admin.Rotation }
+
+func (c *rotationCmds) nodeToken(ctx context.Context, e Env, args []string) error {
+	rest, err := parse(flags("node rotate-token"), args, 1)
+	if err != nil {
+		return err
+	}
+	id, err := number("the id of the node", rest[0])
+	if err != nil {
+		return err
+	}
+	made, err := c.r.RotateNodeToken(ctx, id)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.Stderr, "Gave node %d (uuid %s) a new token. The old one no longer works.\nIts configuration, token included, is on the standard output: save it as config.yml on the node and restart Wings. Until then the panel cannot reach the node; its servers keep running. It cannot be found out again.\n", made.ID, cell(made.UUID))
+	_, err = e.Stdout.Write(made.Config)
+	return err
 }

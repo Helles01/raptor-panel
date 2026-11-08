@@ -13,6 +13,8 @@ import (
 	"github.com/Helles01/raptor-panel/internal/admin"
 	"github.com/Helles01/raptor-panel/internal/auth"
 	"github.com/Helles01/raptor-panel/internal/dbhosts"
+	"github.com/Helles01/raptor-panel/internal/nodes"
+	"go.yaml.in/yaml/v3"
 )
 
 const hostSecret = "Host-acc0unt-pw"
@@ -95,6 +97,7 @@ type dirStore struct {
 	users    []admin.User
 	keys     []admin.KeyInfo
 	revoked  []string
+	kinds    []*auth.KeyType
 	askedFor []*uint64
 	settings map[string]string
 }
@@ -127,6 +130,20 @@ func (s *dirStore) DeleteKey(_ context.Context, identifier string) (admin.KeyInf
 	}
 	return admin.KeyInfo{}, admin.ErrNotFound
 }
+func (s *dirStore) DeleteKeys(_ context.Context, kind *auth.KeyType) (int64, error) {
+	s.kinds = append(s.kinds, kind)
+	var kept []admin.KeyInfo
+	var n int64
+	for _, k := range s.keys {
+		if kind == nil || k.Type == *kind {
+			n++
+		} else {
+			kept = append(kept, k)
+		}
+	}
+	s.keys = kept
+	return n, nil
+}
 func (s *dirStore) ListLocations(context.Context) ([]admin.LocationInfo, error) {
 	return []admin.LocationInfo{{ID: 2, Short: "us", Long: "United\x1b[31m States", Nodes: 1}, {ID: 1, Short: "eu", Long: "Europe", Nodes: 3}}, nil
 }
@@ -138,11 +155,30 @@ func (s *dirStore) Setting(_ context.Context, key string) (string, bool, error) 
 	return v, ok, nil
 }
 
+// rotStore is a node whose token can be replaced.
+type rotStore struct {
+	node     nodes.WingsNode
+	replaced []nodes.Credentials
+}
+
+func (s *rotStore) NodeConfig(_ context.Context, id uint64) (nodes.WingsNode, error) {
+	if id != 4 {
+		return nodes.WingsNode{}, admin.ErrNotFound
+	}
+	return s.node, nil
+}
+
+func (s *rotStore) ReplaceNodeToken(_ context.Context, _ uint64, c nodes.Credentials) error {
+	s.replaced = append(s.replaced, c)
+	return nil
+}
+
 type moreRun struct {
 	t      *testing.T
 	hosts  *hostStore
 	access *hostAccess
 	dir    *dirStore
+	rot    *rotStore
 	cmds   map[string]map[string]Handler
 	stdout bytes.Buffer
 	stderr bytes.Buffer
@@ -179,7 +215,12 @@ func newMoreRun(t *testing.T) *moreRun {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.cmds = All(Services{Hosts: hs, Directory: d})
+	r.rot = &rotStore{node: nodes.WingsNode{UUID: "u-4\x1b[31m", FQDN: "n1.example.com", Scheme: "https", DaemonBase: "/var/lib/pterodactyl/volumes", DaemonSFTP: 2022, DaemonListen: 8080, UploadSize: 100}}
+	rot, err := admin.NewRotation(r.rot, "https://panel.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.cmds = All(Services{Hosts: hs, Directory: d, Rotation: rot})
 	return r
 }
 
@@ -210,13 +251,14 @@ func TestAllMergesTheParts(t *testing.T) {
 	svc := mustService(t, &store{})
 	hs, _ := admin.NewHostService(&hostStore{}, &hostAccess{}, nil)
 	dir, _ := admin.NewDirectory(&dirStore{})
+	rot, _ := admin.NewRotation(&rotStore{}, "https://panel.example.com", nil)
 
 	want := map[string][]string{
 		"user": {"create", "delete", "disable-2fa", "list"}, "apikey": {"create", "list", "revoke"}, "location": {"create", "list"},
-		"node": {"create", "list"}, "nest": {"create"}, "egg": {"import"}, "settings": {"get", "list", "set"},
+		"node": {"create", "list", "rotate-token"}, "nest": {"create"}, "egg": {"import"}, "settings": {"get", "list", "set"},
 		"dbhost": {"create", "delete", "list", "rotate-password", "test", "update"},
 	}
-	if got := names(All(Services{Admin: svc, Hosts: hs, Directory: dir})); !reflect.DeepEqual(got, want) {
+	if got := names(All(Services{Admin: svc, Hosts: hs, Directory: dir, Rotation: rot})); !reflect.DeepEqual(got, want) {
 		t.Errorf("all = %v", got)
 	}
 	if got := names(All(Services{})); len(got) != 0 {
@@ -602,5 +644,109 @@ func TestDoubleDashEndsTheFlagsForGood(t *testing.T) {
 	before := r.hosts.hosts[3].Name
 	if err := r.do("", "dbhost", "update", "--", "3", "--name", "x"); !isUsage(err) || r.hosts.hosts[3].Name != before {
 		t.Errorf("err = %v, name %q", err, r.hosts.hosts[3].Name)
+	}
+}
+
+// --- replacing secrets
+
+func TestNodeRotateTokenGivesTheFileOnceOnStdout(t *testing.T) {
+	r := newMoreRun(t)
+	if err := r.do("", "node", "rotate-token", "4"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.rot.replaced) != 1 {
+		t.Fatalf("replaced %d times", len(r.rot.replaced))
+	}
+	creds := r.rot.replaced[0]
+	// Stdout holds the file and nothing else, so it can go straight into a file on the node.
+	var file map[string]any
+	if err := yaml.Unmarshal(r.stdout.Bytes(), &file); err != nil {
+		t.Fatalf("stdout is not a configuration: %v\n%s", err, r.stdout.String())
+	}
+	if file["token_id"] != creds.TokenID || file["token"] != creds.Token || file["remote"] != "https://panel.example.com" {
+		t.Errorf("file = %v", file)
+	}
+	// What the command says about itself goes to stderr, without the token and without the control characters of the uuid.
+	said := r.stderr.String()
+	if strings.Contains(said, creds.Token) || strings.Contains(said, creds.TokenID) || strings.ContainsRune(said, 0x1b) {
+		t.Errorf("stderr leaks or is not safe: %q", said)
+	}
+	if !strings.Contains(said, "node 4") || !strings.Contains(said, "restart Wings") || !strings.Contains(said, "old one no longer works") {
+		t.Errorf("stderr = %q", said)
+	}
+}
+
+func TestNodeRotateTokenRefusesWhatItCannotDo(t *testing.T) {
+	r := newMoreRun(t)
+	if err := r.do("", "node", "rotate-token", "9"); !errors.Is(err, admin.ErrNotFound) || r.stdout.Len() != 0 || len(r.rot.replaced) != 0 {
+		t.Errorf("unknown node: err = %v, stdout %q, replaced %d", err, r.stdout.String(), len(r.rot.replaced))
+	}
+	for name, args := range map[string][]string{
+		"no id": {}, "two ids": {"4", "5"}, "zero": {"0"}, "not a number": {"four"}, "negative": {"-4"}, "a flag nobody knows": {"--now", "4"},
+	} {
+		if err := r.do("", "node", "rotate-token", args...); !isUsage(err) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	if len(r.rot.replaced) != 0 || r.stdout.Len() != 0 {
+		t.Errorf("something was done: replaced %d, stdout %q", len(r.rot.replaced), r.stdout.String())
+	}
+}
+
+func TestApikeyRevokeAllWantsYes(t *testing.T) {
+	r := newMoreRun(t)
+	err := r.do("", "apikey", "revoke", "--all")
+	var nc *admin.NotConfirmedError
+	if !errors.As(err, &nc) || nc.Count != 5 || isUsage(err) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(r.dir.keys) != 5 || len(r.dir.kinds) != 0 || r.stdout.Len() != 0 {
+		t.Errorf("keys were removed: %d left, asked %v", len(r.dir.keys), r.dir.kinds)
+	}
+
+	if err := r.do("", "apikey", "revoke", "--all", "--yes"); err != nil || len(r.dir.keys) != 0 {
+		t.Fatalf("err = %v, %d left", err, len(r.dir.keys))
+	}
+	if !strings.Contains(r.stderr.String(), "Revoked 5 key(s)") || r.stdout.Len() != 0 {
+		t.Errorf("stderr = %q, stdout = %q", r.stderr.String(), r.stdout.String())
+	}
+}
+
+func TestApikeyRevokeAllByKind(t *testing.T) {
+	r := newMoreRun(t)
+	if err := r.do("", "apikey", "revoke", "--all", "--kind", "account", "--yes"); err != nil || len(r.dir.keys) != 2 {
+		t.Fatalf("err = %v, %d left", err, len(r.dir.keys))
+	}
+	for _, k := range r.dir.keys {
+		if k.Type != auth.KeyApplication {
+			t.Errorf("a key of an account is left: %v", k.Identifier)
+		}
+	}
+	if err := r.do("", "apikey", "revoke", "--all", "--kind", "everything", "--yes"); err == nil || isUsage(err) || len(r.dir.keys) != 2 {
+		t.Errorf("a kind nobody knows: err = %v, %d left", err, len(r.dir.keys))
+	}
+}
+
+// One key by its identifier still works as it did, and the flags of the other form do not mix with it.
+func TestApikeyRevokeKeepsItsTwoForms(t *testing.T) {
+	r := newMoreRun(t)
+	for name, args := range map[string][]string{
+		"--all and an identifier":  {"--all", "ptlc_abcdefghijk"},
+		"--kind without --all":     {"--kind", "account", "ptlc_abcdefghijk"},
+		"--yes without --all":      {"--yes", "ptlc_abcdefghijk"},
+		"nothing":                  {},
+		"two identifiers":          {"ptlc_abcdefghijk", "ptlc_01234567890"},
+		"--yes alone":              {"--yes"},
+		"--all --yes and an extra": {"--all", "--yes", "x"},
+	} {
+		if err := r.do("", "apikey", "revoke", args...); !isUsage(err) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	if len(r.dir.keys) != 5 || len(r.dir.revoked) != 0 || len(r.dir.kinds) != 0 {
+		t.Errorf("something was removed: %d left, revoked %v, asked %v", len(r.dir.keys), r.dir.revoked, r.dir.kinds)
+	}
+	if err := r.do("", "apikey", "revoke", "ptlc_abcdefghijk"); err != nil || len(r.dir.revoked) != 1 || len(r.dir.keys) != 5 {
+		t.Errorf("one key: err = %v, revoked %v", err, r.dir.revoked)
 	}
 }

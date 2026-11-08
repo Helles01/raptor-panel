@@ -55,7 +55,9 @@ type Querier interface {
 	DatabaseHostExists(ctx context.Context, id uint32) (int64, error)
 	DatabaseIDsOfServer(ctx context.Context, serverID uint32) ([]uint32, error)
 	DeleteAPIKey(ctx context.Context, id uint32) error
+	DeleteAPIKeysOfType(ctx context.Context, keyType uint8) (int64, error)
 	DeleteActivityChunk(ctx context.Context, timestamp time.Time) (int64, error)
+	DeleteAllAPIKeys(ctx context.Context) (int64, error)
 	DeleteAllocation(ctx context.Context, id uint32) error
 	DeleteApplicationKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeleteApplicationKeysOfUser(ctx context.Context, userID uint32) error
@@ -72,6 +74,8 @@ type Querier interface {
 	DeleteResetTokensBefore(ctx context.Context, createdAt time.Time) (int64, error)
 	DeleteScheduleOfServer(ctx context.Context, arg DeleteScheduleOfServerParams) (int64, error)
 	DeleteSecret(ctx context.Context, arg DeleteSecretParams) error
+	DeleteSecretsOfAPIKeysOfType(ctx context.Context, keyType uint8) error
+	DeleteSecretsOfAllAPIKeys(ctx context.Context) error
 	DeleteSecretsOfRow(ctx context.Context, arg DeleteSecretsOfRowParams) error
 	DeleteServerRow(ctx context.Context, id uint32) error
 	DeleteSession(ctx context.Context, id string) error

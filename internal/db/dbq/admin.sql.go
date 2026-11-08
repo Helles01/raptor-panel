@@ -158,6 +158,31 @@ func (q *Queries) DeleteAPIKey(ctx context.Context, id uint32) error {
 	return err
 }
 
+const deleteAPIKeysOfType = `-- name: DeleteAPIKeysOfType :execrows
+DELETE FROM api_keys
+WHERE key_type = ?
+`
+
+func (q *Queries) DeleteAPIKeysOfType(ctx context.Context, keyType uint8) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAPIKeysOfType, keyType)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteAllAPIKeys = `-- name: DeleteAllAPIKeys :execrows
+DELETE FROM api_keys
+`
+
+func (q *Queries) DeleteAllAPIKeys(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAllAPIKeys)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteDatabaseHost = `-- name: DeleteDatabaseHost :execrows
 DELETE FROM database_hosts
 WHERE id = ?
@@ -204,6 +229,26 @@ type DeleteSecretParams struct {
 
 func (q *Queries) DeleteSecret(ctx context.Context, arg DeleteSecretParams) error {
 	_, err := q.db.ExecContext(ctx, deleteSecret, arg.TableName, arg.RowID, arg.ColumnName)
+	return err
+}
+
+const deleteSecretsOfAPIKeysOfType = `-- name: DeleteSecretsOfAPIKeysOfType :exec
+DELETE FROM raptor_secrets
+WHERE table_name = 'api_keys' AND row_id IN (SELECT id FROM api_keys WHERE key_type = ?)
+`
+
+func (q *Queries) DeleteSecretsOfAPIKeysOfType(ctx context.Context, keyType uint8) error {
+	_, err := q.db.ExecContext(ctx, deleteSecretsOfAPIKeysOfType, keyType)
+	return err
+}
+
+const deleteSecretsOfAllAPIKeys = `-- name: DeleteSecretsOfAllAPIKeys :exec
+DELETE FROM raptor_secrets
+WHERE table_name = 'api_keys'
+`
+
+func (q *Queries) DeleteSecretsOfAllAPIKeys(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteSecretsOfAllAPIKeys)
 	return err
 }
 

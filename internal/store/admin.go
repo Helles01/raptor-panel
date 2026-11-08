@@ -15,6 +15,7 @@ import (
 	"github.com/Helles01/raptor-panel/internal/auth"
 	"github.com/Helles01/raptor-panel/internal/db/dbq"
 	"github.com/Helles01/raptor-panel/internal/dbhosts"
+	"github.com/Helles01/raptor-panel/internal/nodes"
 	"github.com/Helles01/raptor-panel/internal/secrets"
 	"github.com/Helles01/raptor-panel/internal/settings"
 	"github.com/Helles01/raptor-panel/internal/users"
@@ -29,6 +30,9 @@ func (d *DB) AdminDirectory() admin.DirectoryStore { return adminDirectory{d} }
 // AdminHosts is the storage of the database host commands.
 func (d *DB) AdminHosts() admin.HostStore { return adminHosts{d} }
 
+// AdminRotation is the storage of the commands that replace a secret.
+func (d *DB) AdminRotation() admin.RotationStore { return adminRotation{d} }
+
 // DBHostLookup finds how to reach a database host by its row.
 func (d *DB) DBHostLookup() dbhosts.Lookup { return dbHostLookup{d} }
 
@@ -36,6 +40,7 @@ type (
 	adminStore     struct{ *DB }
 	adminDirectory struct{ *DB }
 	adminHosts     struct{ *DB }
+	adminRotation  struct{ *DB }
 	dbHostLookup   struct{ *DB }
 )
 
@@ -406,6 +411,30 @@ func (s adminDirectory) DeleteKey(ctx context.Context, identifier string) (admin
 	return info, err
 }
 
+// DeleteKeys removes the keys of one kind, or all of them, and the secrets sealed for them. The secrets go first, while the rows they are
+// found by are still there; both happen in one transaction.
+func (s adminDirectory) DeleteKeys(ctx context.Context, kind *auth.KeyType) (int64, error) {
+	var n int64
+	err := s.inTx(ctx, func(q *dbq.Queries) (err error) {
+		if kind == nil {
+			if err = q.DeleteSecretsOfAllAPIKeys(ctx); err != nil {
+				return fmt.Errorf("remove the secrets of the keys: %w", err)
+			}
+			n, err = q.DeleteAllAPIKeys(ctx)
+		} else {
+			if err = q.DeleteSecretsOfAPIKeysOfType(ctx, uint8(*kind)); err != nil {
+				return fmt.Errorf("remove the secrets of the keys: %w", err)
+			}
+			n, err = q.DeleteAPIKeysOfType(ctx, uint8(*kind))
+		}
+		if err != nil {
+			return fmt.Errorf("delete the keys: %w", err)
+		}
+		return nil
+	})
+	return n, err
+}
+
 func (s adminDirectory) ListLocations(ctx context.Context) ([]admin.LocationInfo, error) {
 	rows, err := s.q.ListLocations(ctx)
 	if err != nil {
@@ -579,4 +608,46 @@ func (s dbHostLookup) Conn(ctx context.Context, hostID uint64) (dbhosts.Conn, er
 		return dbhosts.Conn{}, err
 	}
 	return h.Conn(), nil
+}
+
+// NodeConfig reads what the configuration file of a node needs, apart from the token: a node that was migrated and has no sealed token yet
+// can be rotated all the same, which is the way out of an old token that counts as compromised.
+func (s adminRotation) NodeConfig(ctx context.Context, id uint64) (nodes.WingsNode, error) {
+	if id == 0 || id > 1<<32-1 {
+		return nodes.WingsNode{}, admin.ErrNotFound
+	}
+	row, err := s.q.NodeForConfig(ctx, uint32(id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nodes.WingsNode{}, admin.ErrNotFound
+	} else if err != nil {
+		return nodes.WingsNode{}, fmt.Errorf("read node %d: %w", id, err)
+	}
+	mounts, err := s.q.AllowedMountsOfNode(ctx, uint32(id))
+	if err != nil {
+		return nodes.WingsNode{}, fmt.Errorf("read the mounts of node %d: %w", id, err)
+	}
+	return nodes.WingsNode{
+		UUID: row.Uuid, FQDN: row.Fqdn, Scheme: row.Scheme, BehindProxy: row.BehindProxy, DaemonBase: row.Daemonbase, DaemonSFTP: int(row.Daemonsftp),
+		DaemonListen: int(row.Daemonlisten), UploadSize: int64(row.UploadSize), AllowedMounts: mounts,
+	}, nil
+}
+
+// ReplaceNodeToken changes the token id and the sealed token of a node in one transaction, with the row locked, so that the token id the
+// authorizer looks up and the token it checks never disagree.
+func (s adminRotation) ReplaceNodeToken(ctx context.Context, id uint64, creds nodes.Credentials) error {
+	if id == 0 || id > 1<<32-1 {
+		return admin.ErrNotFound
+	}
+	return s.inTx(ctx, func(q *dbq.Queries) error {
+		if _, err := q.LockNode(ctx, uint32(id)); errors.Is(err, sql.ErrNoRows) {
+			return admin.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("lock node %d: %w", id, err)
+		}
+		now := sql.NullTime{Time: s.now().UTC(), Valid: true}
+		if err := q.UpdateNodeTokenID(ctx, dbq.UpdateNodeTokenIDParams{DaemonTokenID: creds.TokenID, UpdatedAt: now, ID: uint32(id)}); err != nil {
+			return fmt.Errorf("store the token id: %w", err)
+		}
+		return s.seal(ctx, q, "nodes", id, "daemon_token", creds.Token)
+	})
 }
