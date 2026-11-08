@@ -9,6 +9,8 @@ import CreateDatabaseButton from '@/components/server/databases/CreateDatabaseBu
 import Can from '@/components/elements/Can';
 import useFlash from '@/plugins/useFlash';
 import tw from 'twin.macro';
+import { faDatabase } from '@fortawesome/free-solid-svg-icons';
+import EmptyState from '@/components/elements/EmptyState';
 import Fade from '@/components/elements/Fade';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
 import { useDeepMemoize } from '@/plugins/useDeepMemoize';
@@ -53,11 +55,14 @@ export default () => {
                                 />
                             ))
                         ) : (
-                            <p css={tw`text-center text-sm text-neutral-300`}>
+                            <EmptyState
+                                icon={faDatabase}
+                                title={databaseLimit > 0 ? 'No databases yet' : 'Databases are not available'}
+                            >
                                 {databaseLimit > 0
-                                    ? 'It looks like you have no databases.'
+                                    ? 'Databases you create for this server will be listed here.'
                                     : 'Databases cannot be created for this server.'}
-                            </p>
+                            </EmptyState>
                         )}
                         <Can action={'database.create'}>
                             <div css={tw`mt-6 flex items-center justify-end`}>

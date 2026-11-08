@@ -75,7 +75,7 @@ export default () => {
                                 type={'string'}
                                 id={'database_name'}
                                 name={'databaseName'}
-                                label={'Database Name'}
+                                label={'Database name'}
                                 description={'A descriptive name for your database instance.'}
                             />
                             <div css={tw`mt-6`}>
@@ -83,7 +83,7 @@ export default () => {
                                     type={'string'}
                                     id={'connections_from'}
                                     name={'connectionsFrom'}
-                                    label={'Connections From'}
+                                    label={'Connections from'}
                                     description={
                                         'Where connections should be allowed from. Leave blank to allow connections from anywhere.'
                                     }
@@ -106,7 +106,7 @@ export default () => {
                     </Modal>
                 )}
             </Formik>
-            <Button onClick={() => setVisible(true)}>New Database</Button>
+            <Button onClick={() => setVisible(true)}>New database</Button>
         </>
     );
 };

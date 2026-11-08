@@ -66,7 +66,7 @@ const RenameFileModal = ({ files, useMoveTerminology, ...props }: OwnProps) => {
                                     type={'string'}
                                     id={'file_name'}
                                     name={'name'}
-                                    label={'File Name'}
+                                    label={'File name'}
                                     description={
                                         useMoveTerminology
                                             ? 'Enter the new name and directory of this file or folder, relative to the current directory.'

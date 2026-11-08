@@ -112,7 +112,7 @@ const EditScheduleModal = ({ schedule }: Props) => {
                         <Switch
                             name={'show_cheatsheet'}
                             description={'Show the cron cheatsheet for some examples.'}
-                            label={'Show Cheatsheet'}
+                            label={'Show cheatsheet'}
                             defaultChecked={showCheatsheet}
                             onChange={() => setShowCheetsheet((s) => !s)}
                         />
@@ -126,14 +126,14 @@ const EditScheduleModal = ({ schedule }: Props) => {
                         <FormikSwitch
                             name={'onlyWhenOnline'}
                             description={'Only execute this schedule when the server is in a running state.'}
-                            label={'Only When Server Is Online'}
+                            label={'Only when server is online'}
                         />
                     </div>
                     <div css={tw`mt-6 bg-neutral-700 border border-neutral-800 shadow-inner p-4 rounded`}>
                         <FormikSwitch
                             name={'enabled'}
                             description={'This schedule will be executed automatically if enabled.'}
-                            label={'Schedule Enabled'}
+                            label={'Schedule enabled'}
                         />
                     </div>
                     <div css={tw`mt-6 text-right`}>

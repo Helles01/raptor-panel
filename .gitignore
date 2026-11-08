@@ -44,3 +44,4 @@ h
 !/web/public/assets/.gitkeep
 # Credentials of the local test database (never committed)
 .raptor-test.env
+.raptor-dev.env

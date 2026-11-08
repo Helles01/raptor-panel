@@ -6,6 +6,8 @@ import CreateBackupButton from '@/components/server/backups/CreateBackupButton';
 import FlashMessageRender from '@/components/FlashMessageRender';
 import BackupRow from '@/components/server/backups/BackupRow';
 import tw from 'twin.macro';
+import { faArchive } from '@fortawesome/free-solid-svg-icons';
+import EmptyState from '@/components/elements/EmptyState';
 import getServerBackups, { Context as ServerBackupContext } from '@/api/swr/getServerBackups';
 import { ServerContext } from '@/state/server';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
@@ -41,11 +43,11 @@ const BackupContainer = () => {
                         // Don't show any error messages if the server has no backups and the user cannot
                         // create additional ones for the server.
                         !backupLimit ? null : (
-                            <p css={tw`text-center text-sm text-neutral-300`}>
+                            <EmptyState icon={faArchive} title={page > 1 ? 'No more backups' : 'No backups yet'}>
                                 {page > 1
-                                    ? "Looks like we've run out of backups to show you, try going back a page."
-                                    : 'It looks like there are no backups currently stored for this server.'}
-                            </p>
+                                    ? 'There is nothing on this page, try going back a page.'
+                                    : 'Backups you create will be listed here.'}
+                            </EmptyState>
                         )
                     ) : (
                         items.map((backup, index) => (

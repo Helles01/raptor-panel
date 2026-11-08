@@ -67,7 +67,7 @@ const FileUploadList = () => {
 };
 
 const FileUploadListDialog = asDialog({
-    title: 'File Uploads',
+    title: 'File uploads',
     description: 'The following files are being uploaded to your server.',
 })(FileUploadList);
 

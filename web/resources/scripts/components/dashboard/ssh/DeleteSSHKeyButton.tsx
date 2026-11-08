@@ -29,7 +29,7 @@ export default ({ name, fingerprint }: { name: string; fingerprint: string }) =>
             <Dialog.Confirm
                 open={visible}
                 title={'Delete SSH Key'}
-                confirm={'Delete Key'}
+                confirm={'Delete key'}
                 onConfirmed={onClick}
                 onClose={() => setVisible(false)}
             >

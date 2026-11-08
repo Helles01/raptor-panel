@@ -13,13 +13,13 @@ interface Props {
 const styling = (type?: FlashMessageType): TwStyle | string => {
     switch (type) {
         case 'error':
-            return tw`bg-red-600 border-red-800`;
+            return tw`bg-red-900/50 border-red-700`;
         case 'info':
-            return tw`bg-primary-600 border-primary-800`;
+            return tw`bg-neutral-800 border-neutral-600`;
         case 'success':
-            return tw`bg-green-600 border-green-800`;
+            return tw`bg-green-900/50 border-green-700`;
         case 'warning':
-            return tw`bg-yellow-600 border-yellow-800`;
+            return tw`bg-yellow-900/50 border-yellow-700`;
         default:
             return '';
     }
@@ -30,7 +30,7 @@ const getBackground = (type?: FlashMessageType): TwStyle | string => {
         case 'error':
             return tw`bg-red-500`;
         case 'info':
-            return tw`bg-primary-500`;
+            return tw`bg-neutral-600`;
         case 'success':
             return tw`bg-green-500`;
         case 'warning':
@@ -41,7 +41,7 @@ const getBackground = (type?: FlashMessageType): TwStyle | string => {
 };
 
 const Container = styled.div<{ $type?: FlashMessageType }>`
-    ${tw`p-2 border items-center leading-normal rounded flex w-full text-sm text-white`};
+    ${tw`px-3 py-2 border items-center leading-normal rounded-md flex w-full text-sm text-neutral-100`};
     ${(props) => styling(props.$type)};
 `;
 Container.displayName = 'MessageBox.Container';
@@ -51,10 +51,7 @@ const MessageBox = ({ title, children, type }: Props) => (
         {title && (
             <span
                 className={'title'}
-                css={[
-                    tw`flex rounded-full uppercase px-2 py-1 text-xs font-bold mr-3 leading-none`,
-                    getBackground(type),
-                ]}
+                css={[tw`flex rounded px-2 py-1 text-xs font-semibold mr-3 leading-none`, getBackground(type)]}
             >
                 {title}
             </span>

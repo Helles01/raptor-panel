@@ -22,7 +22,7 @@ import { ip } from '@/lib/formatters';
 import Code from '@/components/elements/Code';
 
 const Label = styled.label`
-    ${tw`uppercase text-xs mt-1 text-neutral-400 block px-1 select-none transition-colors duration-150`}
+    ${tw`text-xs mt-1 text-neutral-400 block px-1 select-none transition-colors duration-150`}
 `;
 
 interface Props {

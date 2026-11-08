@@ -30,7 +30,7 @@ const PermissionTitleBox: React.FC<Props> = memo(({ isEditable, title, permissio
         <TitledGreyBox
             title={
                 <div css={tw`flex items-center`}>
-                    <p css={tw`text-sm uppercase flex-1`}>{title}</p>
+                    <p css={tw`text-sm flex-1`}>{title}</p>
                     {isEditable && (
                         <Input
                             type={'checkbox'}

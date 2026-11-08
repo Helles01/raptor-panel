@@ -111,7 +111,7 @@ const EditSubuserModal = ({ subuser }: Props) => {
                     </h2>
                     <div>
                         <Button type={'submit'} css={tw`w-full sm:w-auto`}>
-                            {subuser ? 'Save' : 'Invite User'}
+                            {subuser ? 'Save' : 'Invite user'}
                         </Button>
                     </div>
                 </div>
@@ -128,7 +128,7 @@ const EditSubuserModal = ({ subuser }: Props) => {
                     <div css={tw`mt-6`}>
                         <Field
                             name={'email'}
-                            label={'User Email'}
+                            label={'User email'}
                             description={
                                 'Enter the email address of the user you wish to invite as a subuser for this server.'
                             }
@@ -160,7 +160,7 @@ const EditSubuserModal = ({ subuser }: Props) => {
                 <Can action={subuser ? 'user.update' : 'user.create'}>
                     <div css={tw`pb-6 flex justify-end`}>
                         <Button type={'submit'} css={tw`w-full sm:w-auto`}>
-                            {subuser ? 'Save' : 'Invite User'}
+                            {subuser ? 'Save' : 'Invite user'}
                         </Button>
                     </div>
                 </Can>

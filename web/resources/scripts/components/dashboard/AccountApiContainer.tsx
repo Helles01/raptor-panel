@@ -42,7 +42,7 @@ export default () => {
     };
 
     return (
-        <PageContentBlock title={'Account API'}>
+        <PageContentBlock title={'Account API'} heading={'API credentials'}>
             <FlashMessageRender byKey={'account'} />
             <div css={tw`md:flex flex-nowrap my-10`}>
                 <ContentBox title={'Create API Key'} css={tw`flex-none w-full md:w-1/2`}>
@@ -52,7 +52,7 @@ export default () => {
                     <SpinnerOverlay visible={loading} />
                     <Dialog.Confirm
                         title={'Delete API Key'}
-                        confirm={'Delete Key'}
+                        confirm={'Delete key'}
                         open={!!deleteIdentifier}
                         onClose={() => setDeleteIdentifier('')}
                         onConfirmed={() => doDeletion(deleteIdentifier)}
@@ -72,7 +72,7 @@ export default () => {
                                 <FontAwesomeIcon icon={faKey} css={tw`text-neutral-300`} />
                                 <div css={tw`ml-4 flex-1 overflow-hidden`}>
                                     <p css={tw`text-sm break-words`}>{key.description}</p>
-                                    <p css={tw`text-2xs text-neutral-300 uppercase`}>
+                                    <p css={tw`text-2xs text-neutral-300`}>
                                         Last used:&nbsp;
                                         {key.lastUsedAt ? format(key.lastUsedAt, 'MMM do, yyyy HH:mm') : 'Never'}
                                     </p>

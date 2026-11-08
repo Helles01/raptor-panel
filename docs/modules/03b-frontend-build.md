@@ -35,11 +35,15 @@ old webpack/babel chain is known to work with. The plan and `versions.env` now s
   beyond their ranges; the 8 critical findings are in build tooling. Details in `docs/frontend-audit.md`.
 
 ## What matches the reference
-Everything under `resources/scripts`, unchanged.
+Everything under `resources/scripts` except the files restyled for the panel's own look (`22-visual-identity.md`) and `LoginFormContainer.tsx` (see below).
 
 ## Deliberate differences
+- **The look (2026-11-03).** Colours, type, buttons, inputs, boxes, navigation, the logo and the footer were restyled and rebranded; see `22-visual-identity.md`. The structure of the pages and every route are unchanged.
 - Dependency versions differ in the places listed in `web/README.md` and `docs/frontend-audit.md` (security upgrades).
 - The reference's `public/` folder is not copied (Pterodactyl logo and favicons, and the Blade admin theme).
+- `components/auth/LoginFormContainer.tsx` imports the logo through the build (`import PterodactylSvg from '@/assets/images/pterodactyl.svg'`, which `svg-url-loader` inlines) instead of the
+  literal path `/assets/svgs/pterodactyl.svg`. The reference serves that path from its `public/` folder, which is not copied, so the first run in a browser showed a broken image (2026-11-03). The
+  panel's assets handler serves only flat files of the build, on purpose, so the file is not added as a nested path.
 
 ## Left for later
 - Replace the Pterodactyl branding before a release (logo `assets/svgs/pterodactyl.svg` used by

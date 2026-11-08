@@ -10,6 +10,8 @@ import { NavLink, useLocation } from 'react-router-dom';
 import Can from '@/components/elements/Can';
 import { ServerError } from '@/components/elements/ScreenBlock';
 import tw from 'twin.macro';
+import { faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import EmptyState from '@/components/elements/EmptyState';
 import { Button } from '@/components/elements/button/index';
 import { ServerContext } from '@/state/server';
 import useFileManagerSwr from '@/plugins/useFileManagerSwr';
@@ -60,7 +62,7 @@ export default () => {
     }
 
     return (
-        <ServerContentBlock title={'File Manager'} showFlashKey={'files'}>
+        <ServerContentBlock title={'File manager'} showFlashKey={'files'}>
             <ErrorBoundary>
                 <div className={'flex flex-wrap-reverse md:flex-nowrap mb-4'}>
                     <FileManagerBreadcrumbs
@@ -79,7 +81,7 @@ export default () => {
                             <NewDirectoryButton />
                             <UploadButton />
                             <NavLink to={`/server/${id}/files/new${window.location.hash}`}>
-                                <Button>New File</Button>
+                                <Button>New file</Button>
                             </NavLink>
                         </div>
                     </Can>
@@ -90,7 +92,9 @@ export default () => {
             ) : (
                 <>
                     {!files.length ? (
-                        <p css={tw`text-sm text-neutral-400 text-center`}>This directory seems to be empty.</p>
+                        <EmptyState icon={faFolderOpen} title={'This directory is empty'}>
+                            Files you create or upload here will be listed.
+                        </EmptyState>
                     ) : (
                         <CSSTransition classNames={'fade'} timeout={150} appear in>
                             <div>

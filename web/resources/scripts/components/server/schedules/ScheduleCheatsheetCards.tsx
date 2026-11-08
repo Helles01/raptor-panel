@@ -30,7 +30,7 @@ export default () => {
                 </div>
             </div>
             <div css={tw`md:w-1/2 h-full bg-neutral-600`}>
-                <h2 css={tw`py-4 px-6 font-bold`}>Special Characters</h2>
+                <h2 css={tw`py-4 px-6 font-bold`}>Special characters</h2>
                 <div css={tw`flex flex-col`}>
                     <div css={tw`flex py-4 px-6 bg-neutral-500`}>
                         <div css={tw`w-1/2`}>*</div>

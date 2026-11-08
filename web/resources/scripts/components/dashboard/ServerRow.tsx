@@ -1,51 +1,34 @@
-import React, { memo, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEthernet, faHdd, faMemory, faMicrochip, faServer } from '@fortawesome/free-solid-svg-icons';
+import { faEthernet, faServer } from '@fortawesome/free-solid-svg-icons';
 import { Link } from 'react-router-dom';
 import { Server } from '@/api/server/getServer';
-import getServerResourceUsage, { ServerPowerState, ServerStats } from '@/api/server/getServerResourceUsage';
+import getServerResourceUsage, { ServerStats } from '@/api/server/getServerResourceUsage';
 import { bytesToString, ip, mbToBytes } from '@/lib/formatters';
 import tw from 'twin.macro';
-import GreyRowBox from '@/components/elements/GreyRowBox';
 import Spinner from '@/components/elements/Spinner';
-import styled from 'styled-components/macro';
-import isEqual from 'react-fast-compare';
+import StatusChip, { Tone } from '@/components/elements/StatusChip';
 
-// Determines if the current value is in an alarm threshold so we can show it in red rather
-// than the more faded default style.
-const isAlarmState = (current: number, limit: number): boolean => limit > 0 && current / (limit * 1024 * 1024) >= 0.9;
+// How much of the limit is used, from 0 to 1, or null when there is no limit to measure against.
+const share = (used: number, limit: number): number | null => (limit > 0 ? Math.min(used / limit, 1) : null);
 
-const Icon = memo(
-    styled(FontAwesomeIcon)<{ $alarm: boolean }>`
-        ${(props) => (props.$alarm ? tw`text-red-400` : tw`text-neutral-500`)};
-    `,
-    isEqual
+const Meter = ({ label, value, of, ratio }: { label: string; value: string; of: string; ratio: number | null }) => (
+    <div css={tw`min-w-0`}>
+        <div css={tw`flex items-baseline justify-between text-xs mb-1`}>
+            <span css={tw`text-neutral-400`}>{label}</span>
+            <span css={tw`font-mono text-neutral-100 truncate ml-2`}>{value}</span>
+        </div>
+        <div css={tw`h-1 rounded-full bg-neutral-700 overflow-hidden`}>
+            {ratio !== null && (
+                <div
+                    css={[tw`h-full rounded-full`, ratio >= 0.9 ? tw`bg-red-400` : tw`bg-ember-500`]}
+                    style={{ width: `${Math.round(ratio * 100)}%` }}
+                />
+            )}
+        </div>
+        <p css={tw`mt-1 text-2xs text-neutral-500 truncate`}>of {of}</p>
+    </div>
 );
-
-const IconDescription = styled.p<{ $alarm: boolean }>`
-    ${tw`text-sm ml-2`};
-    ${(props) => (props.$alarm ? tw`text-white` : tw`text-neutral-400`)};
-`;
-
-const StatusIndicatorBox = styled(GreyRowBox)<{ $status: ServerPowerState | undefined }>`
-    ${tw`grid grid-cols-12 gap-4 relative`};
-
-    & .status-bar {
-        ${tw`w-2 bg-red-500 absolute right-0 z-20 rounded-full m-1 opacity-50 transition-all duration-150`};
-        height: calc(100% - 0.5rem);
-
-        ${({ $status }) =>
-            !$status || $status === 'offline'
-                ? tw`bg-red-500`
-                : $status === 'running'
-                ? tw`bg-green-500`
-                : tw`bg-yellow-500`};
-    }
-
-    &:hover .status-bar {
-        ${tw`opacity-75`};
-    }
-`;
 
 type Timer = ReturnType<typeof setInterval>;
 
@@ -53,11 +36,18 @@ export default ({ server, className }: { server: Server; className?: string }) =
     const interval = useRef<Timer>(null) as React.MutableRefObject<Timer>;
     const [isSuspended, setIsSuspended] = useState(server.status === 'suspended');
     const [stats, setStats] = useState<ServerStats | null>(null);
+    const [unreachable, setUnreachable] = useState(false);
 
     const getStats = () =>
         getServerResourceUsage(server.uuid)
-            .then((data) => setStats(data))
-            .catch((error) => console.error(error));
+            .then((data) => {
+                setStats(data);
+                setUnreachable(false);
+            })
+            .catch((error) => {
+                console.error(error);
+                setUnreachable(true);
+            });
 
     useEffect(() => {
         setIsSuspended(stats?.isSuspended || server.status === 'suspended');
@@ -77,106 +67,102 @@ export default ({ server, className }: { server: Server; className?: string }) =
         };
     }, [isSuspended, server.isNodeUnderMaintenance]);
 
-    const alarms = { cpu: false, memory: false, disk: false };
-    if (stats) {
-        alarms.cpu = server.limits.cpu === 0 ? false : stats.cpuUsagePercent >= server.limits.cpu * 0.9;
-        alarms.memory = isAlarmState(stats.memoryUsageInBytes, server.limits.memory);
-        alarms.disk = server.limits.disk === 0 ? false : isAlarmState(stats.diskUsageInBytes, server.limits.disk);
+    const limits = server.limits;
+    const address = server.allocations
+        .filter((alloc) => alloc.isDefault)
+        .map((allocation) => `${allocation.alias || ip(allocation.ip)}:${allocation.port}`)
+        .join(', ');
+
+    let chip: { tone: Tone; text: string } | null = null;
+    if (isSuspended) {
+        chip = { tone: 'bad', text: server.status === 'suspended' ? 'Suspended' : 'Connection error' };
+    } else if (server.isNodeUnderMaintenance) {
+        chip = { tone: 'warn', text: 'Under maintenance' };
+    } else if (server.isTransferring || server.status) {
+        chip = {
+            tone: 'neutral',
+            text: server.isTransferring
+                ? 'Transferring'
+                : server.status === 'installing'
+                ? 'Installing'
+                : server.status === 'restoring_backup'
+                ? 'Restoring backup'
+                : 'Unavailable',
+        };
+    } else if (unreachable && !stats) {
+        chip = { tone: 'warn', text: 'Unreachable' };
+    } else if (stats) {
+        chip =
+            stats.status === 'running'
+                ? { tone: 'good', text: 'Running' }
+                : stats.status === 'offline'
+                ? { tone: 'neutral', text: 'Offline' }
+                : { tone: 'warn', text: stats.status === 'starting' ? 'Starting' : 'Stopping' };
     }
 
-    const diskLimit = server.limits.disk !== 0 ? bytesToString(mbToBytes(server.limits.disk)) : 'Unlimited';
-    const memoryLimit = server.limits.memory !== 0 ? bytesToString(mbToBytes(server.limits.memory)) : 'Unlimited';
-    const cpuLimit = server.limits.cpu !== 0 ? server.limits.cpu + ' %' : 'Unlimited';
+    const measured =
+        !!stats && !isSuspended && !server.isNodeUnderMaintenance && !server.isTransferring && !server.status;
 
     return (
-        <StatusIndicatorBox as={Link} to={`/server/${server.id}`} className={className} $status={stats?.status}>
-            <div css={tw`flex items-center col-span-12 sm:col-span-5 lg:col-span-6`}>
-                <div className={'icon mr-4'}>
-                    <FontAwesomeIcon icon={faServer} />
+        <Link
+            to={`/server/${server.id}`}
+            className={className}
+            css={tw`block rounded-xl bg-surface border border-line p-4 no-underline text-neutral-200 transition-colors duration-150 hover:border-neutral-600`}
+        >
+            <div css={tw`flex items-start justify-between`}>
+                <div css={tw`flex items-center min-w-0`}>
+                    <div
+                        css={tw`w-10 h-10 mr-3 flex-shrink-0 flex items-center justify-center rounded-lg bg-neutral-700 text-neutral-300`}
+                    >
+                        <FontAwesomeIcon icon={faServer} />
+                    </div>
+                    <div css={tw`min-w-0`}>
+                        <p css={tw`font-semibold text-neutral-50 truncate`}>{server.name}</p>
+                        {!!server.description && (
+                            <p css={tw`text-xs text-neutral-400 truncate`}>{server.description}</p>
+                        )}
+                    </div>
                 </div>
-                <div>
-                    <p css={tw`text-lg break-words`}>{server.name}</p>
-                    {!!server.description && (
-                        <p css={tw`text-sm text-neutral-300 break-words line-clamp-2`}>{server.description}</p>
-                    )}
-                </div>
-            </div>
-            <div css={tw`flex-1 ml-4 lg:block lg:col-span-2 hidden`}>
-                <div css={tw`flex justify-center`}>
-                    <FontAwesomeIcon icon={faEthernet} css={tw`text-neutral-500`} />
-                    <p css={tw`text-sm text-neutral-400 ml-2`}>
-                        {server.allocations
-                            .filter((alloc) => alloc.isDefault)
-                            .map((allocation) => (
-                                <React.Fragment key={allocation.ip + allocation.port.toString()}>
-                                    {allocation.alias || ip(allocation.ip)}:{allocation.port}
-                                </React.Fragment>
-                            ))}
-                    </p>
-                </div>
-            </div>
-            <div css={tw`hidden col-span-7 lg:col-span-4 sm:flex items-baseline justify-center`}>
-                {!stats || isSuspended || server.isNodeUnderMaintenance ? (
-                    isSuspended ? (
-                        <div css={tw`flex-1 text-center`}>
-                            <span css={tw`bg-red-500 rounded px-2 py-1 text-red-100 text-xs`}>
-                                {server.status === 'suspended' ? 'Suspended' : 'Connection Error'}
-                            </span>
-                        </div>
-                    ) : server.isNodeUnderMaintenance ? (
-                        <div css={tw`flex-1 text-center`}>
-                            <span css={tw`bg-yellow-500 rounded px-2 py-1 text-yellow-100 text-xs`}>
-                                Under Maintenance
-                            </span>
-                        </div>
-                    ) : server.isTransferring || server.status ? (
-                        <div css={tw`flex-1 text-center`}>
-                            <span css={tw`bg-neutral-500 rounded px-2 py-1 text-neutral-100 text-xs`}>
-                                {server.isTransferring
-                                    ? 'Transferring'
-                                    : server.status === 'installing'
-                                    ? 'Installing'
-                                    : server.status === 'restoring_backup'
-                                    ? 'Restoring Backup'
-                                    : 'Unavailable'}
-                            </span>
-                        </div>
-                    ) : (
-                        <Spinner size={'small'} />
-                    )
-                ) : (
-                    <React.Fragment>
-                        <div css={tw`flex-1 ml-4 sm:block hidden`}>
-                            <div css={tw`flex justify-center`}>
-                                <Icon icon={faMicrochip} $alarm={alarms.cpu} />
-                                <IconDescription $alarm={alarms.cpu}>
-                                    {stats.cpuUsagePercent.toFixed(2)} %
-                                </IconDescription>
-                            </div>
-                            <p css={tw`text-xs text-neutral-600 text-center mt-1`}>of {cpuLimit}</p>
-                        </div>
-                        <div css={tw`flex-1 ml-4 sm:block hidden`}>
-                            <div css={tw`flex justify-center`}>
-                                <Icon icon={faMemory} $alarm={alarms.memory} />
-                                <IconDescription $alarm={alarms.memory}>
-                                    {bytesToString(stats.memoryUsageInBytes)}
-                                </IconDescription>
-                            </div>
-                            <p css={tw`text-xs text-neutral-600 text-center mt-1`}>of {memoryLimit}</p>
-                        </div>
-                        <div css={tw`flex-1 ml-4 sm:block hidden`}>
-                            <div css={tw`flex justify-center`}>
-                                <Icon icon={faHdd} $alarm={alarms.disk} />
-                                <IconDescription $alarm={alarms.disk}>
-                                    {bytesToString(stats.diskUsageInBytes)}
-                                </IconDescription>
-                            </div>
-                            <p css={tw`text-xs text-neutral-600 text-center mt-1`}>of {diskLimit}</p>
-                        </div>
-                    </React.Fragment>
+                {chip && (
+                    <div css={tw`ml-3`}>
+                        <StatusChip tone={chip.tone}>{chip.text}</StatusChip>
+                    </div>
                 )}
             </div>
-            <div className={'status-bar'} />
-        </StatusIndicatorBox>
+            <p css={tw`flex items-center mt-3 text-xs text-neutral-400`}>
+                <FontAwesomeIcon icon={faEthernet} css={tw`mr-2 text-neutral-500`} />
+                <span css={tw`font-mono`}>{address || 'No address'}</span>
+            </p>
+            <div css={tw`mt-4 grid grid-cols-3 gap-4`}>
+                {measured && stats ? (
+                    <>
+                        <Meter
+                            label={'CPU'}
+                            value={`${stats.cpuUsagePercent.toFixed(1)}%`}
+                            of={limits.cpu !== 0 ? `${limits.cpu}%` : 'unlimited'}
+                            ratio={share(stats.cpuUsagePercent, limits.cpu)}
+                        />
+                        <Meter
+                            label={'Memory'}
+                            value={bytesToString(stats.memoryUsageInBytes)}
+                            of={limits.memory !== 0 ? bytesToString(mbToBytes(limits.memory)) : 'unlimited'}
+                            ratio={share(stats.memoryUsageInBytes, mbToBytes(limits.memory))}
+                        />
+                        <Meter
+                            label={'Disk'}
+                            value={bytesToString(stats.diskUsageInBytes)}
+                            of={limits.disk !== 0 ? bytesToString(mbToBytes(limits.disk)) : 'unlimited'}
+                            ratio={share(stats.diskUsageInBytes, mbToBytes(limits.disk))}
+                        />
+                    </>
+                ) : !chip && !stats ? (
+                    <div css={tw`col-span-3 flex justify-center`}>
+                        <Spinner size={'small'} />
+                    </div>
+                ) : (
+                    <p css={tw`col-span-3 text-xs text-neutral-500`}>Usage is not available right now.</p>
+                )}
+            </div>
+        </Link>
     );
 };

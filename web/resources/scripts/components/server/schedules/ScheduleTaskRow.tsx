@@ -29,13 +29,13 @@ interface Props {
 const getActionDetails = (action: string): [string, any] => {
     switch (action) {
         case 'command':
-            return ['Send Command', faCode];
+            return ['Send command', faCode];
         case 'power':
-            return ['Send Power Action', faToggleOn];
+            return ['Send power action', faToggleOn];
         case 'backup':
-            return ['Create Backup', faFileArchive];
+            return ['Create backup', faFileArchive];
         default:
-            return ['Unknown Action', faCode];
+            return ['Unknown action', faCode];
     }
 };
 
@@ -77,7 +77,7 @@ export default ({ schedule, task }: Props) => {
             />
             <ConfirmationModal
                 title={'Confirm task deletion'}
-                buttonText={'Delete Task'}
+                buttonText={'Delete task'}
                 onConfirmed={onConfirmDeletion}
                 visible={visible}
                 onModalDismissed={() => setVisible(false)}
@@ -86,11 +86,11 @@ export default ({ schedule, task }: Props) => {
             </ConfirmationModal>
             <FontAwesomeIcon icon={icon} css={tw`text-lg text-white hidden md:block`} />
             <div css={tw`flex-none sm:flex-1 w-full sm:w-auto overflow-x-auto`}>
-                <p css={tw`md:ml-6 text-neutral-200 uppercase text-sm`}>{title}</p>
+                <p css={tw`md:ml-6 text-neutral-200 text-sm`}>{title}</p>
                 {task.payload && (
                     <div css={tw`md:ml-6 mt-2`}>
                         {task.action === 'backup' && (
-                            <p css={tw`text-xs uppercase text-neutral-400 mb-1`}>Ignoring files & folders:</p>
+                            <p css={tw`text-xs text-neutral-400 mb-1`}>Ignoring files & folders:</p>
                         )}
                         <div
                             css={tw`font-mono bg-neutral-800 rounded py-1 px-2 text-sm w-auto inline-block whitespace-pre-wrap break-all`}

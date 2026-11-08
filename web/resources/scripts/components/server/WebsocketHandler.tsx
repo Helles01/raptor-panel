@@ -109,7 +109,7 @@ export default () => {
 
     return error ? (
         <CSSTransition timeout={150} in appear classNames={'fade'}>
-            <div css={tw`bg-red-500 py-2`}>
+            <div css={tw`bg-red-900 border-b border-red-700 py-2`}>
                 <ContentContainer css={tw`flex items-center justify-center`}>
                     {error === 'connecting' ? (
                         <>

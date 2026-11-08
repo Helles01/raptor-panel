@@ -44,12 +44,12 @@ export default ({ onFileNamed, onDismissed, ...props }: Props) => {
                         <Field
                             id={'fileName'}
                             name={'fileName'}
-                            label={'File Name'}
+                            label={'File name'}
                             description={'Enter the name that this file should be saved as.'}
                             autoFocus
                         />
                         <div css={tw`mt-6 text-right`}>
-                            <Button type={'submit'}>Create File</Button>
+                            <Button type={'submit'}>Create file</Button>
                         </div>
                     </Form>
                 </Modal>

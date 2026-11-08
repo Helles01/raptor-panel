@@ -11,6 +11,8 @@ import { httpErrorToHuman } from '@/api/http';
 import Can from '@/components/elements/Can';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
 import tw from 'twin.macro';
+import { faUsers } from '@fortawesome/free-solid-svg-icons';
+import EmptyState from '@/components/elements/EmptyState';
 
 export default () => {
     const [loading, setLoading] = useState(true);
@@ -51,7 +53,9 @@ export default () => {
         <ServerContentBlock title={'Users'}>
             <FlashMessageRender byKey={'users'} css={tw`mb-4`} />
             {!subusers.length ? (
-                <p css={tw`text-center text-sm text-neutral-300`}>It looks like you don&apos;t have any subusers.</p>
+                <EmptyState icon={faUsers} title={'No other users yet'}>
+                    Add a user to give someone access to this server.
+                </EmptyState>
             ) : (
                 subusers.map((subuser) => <UserRow key={subuser.uuid} subuser={subuser} />)
             )}

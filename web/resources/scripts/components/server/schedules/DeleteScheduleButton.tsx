@@ -41,7 +41,7 @@ export default ({ scheduleId, onDeleted }: Props) => {
             <Dialog.Confirm
                 open={visible}
                 onClose={() => setVisible(false)}
-                title={'Delete Schedule'}
+                title={'Delete schedule'}
                 confirm={'Delete'}
                 onConfirmed={onDelete}
             >

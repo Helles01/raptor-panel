@@ -10,6 +10,8 @@ import EditScheduleModal from '@/components/server/schedules/EditScheduleModal';
 import Can from '@/components/elements/Can';
 import useFlash from '@/plugins/useFlash';
 import tw from 'twin.macro';
+import { faClock } from '@fortawesome/free-solid-svg-icons';
+import EmptyState from '@/components/elements/EmptyState';
 import GreyRowBox from '@/components/elements/GreyRowBox';
 import { Button } from '@/components/elements/button/index';
 import ServerContentBlock from '@/components/elements/ServerContentBlock';
@@ -45,9 +47,9 @@ export default () => {
             ) : (
                 <>
                     {schedules.length === 0 ? (
-                        <p css={tw`text-sm text-center text-neutral-300`}>
-                            There are no schedules configured for this server.
-                        </p>
+                        <EmptyState icon={faClock} title={'No schedules yet'}>
+                            A schedule runs commands, power actions and backups on a timer.
+                        </EmptyState>
                     ) : (
                         schedules.map((schedule) => (
                             <GreyRowBox

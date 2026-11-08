@@ -40,3 +40,10 @@ The outbox (every `jobs.outbox_seconds`; mail and the orders to take a user's ac
 ## Tests
 `cmd/raptor/cmd_serve_integration_test.go` (the whole panel, with two-factor and the limits), `cmd_routes_integration_test.go`, `internal/app/adapters_test.go`, `internal/db`: `PendingMigrations`.
 Mutants killed: the CSRF check, the session loading, the limit of each API.
+
+## The first run in a browser (2026-11-03)
+A development panel on `127.0.0.1:8000` over its own database (`raptor_dev`, credentials in the git-ignored `.raptor-dev.env`), opened in the built-in browser pane. What was seen:
+- The login, password-request and sign-in-redirect pages render, the fonts and bundles load, and **the strict CSP (`default-src 'none'`, script nonce, `img-src 'self' data:`) blocked nothing**: the console had no violation.
+- One fault: the logo of the login box was a broken image, because the frontend asks for `/assets/svgs/pterodactyl.svg`, a file of the reference's `public/` folder that is not part of the build. The component now imports
+  the logo through the build (`03b-frontend-build.md`); after a rebuild the page has no 404.
+- The signed-in pages need a sign-in by a person: the password of a development account is not read out of the file by the assistant.

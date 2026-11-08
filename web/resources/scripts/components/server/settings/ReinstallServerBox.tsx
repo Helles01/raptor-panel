@@ -39,7 +39,7 @@ export default () => {
 
     if (skipScripts) {
         return (
-            <TitledGreyBox title={'Reinstall Server'}>
+            <TitledGreyBox title={'Reinstall server'}>
                 <p css={tw`text-sm`}>
                     Reinstalling this server has been disabled because it is configured to skip its egg&apos;s install
                     script. If you would like to reinstall this server, contact a server administrator.
@@ -49,7 +49,7 @@ export default () => {
     }
 
     return (
-        <TitledGreyBox title={'Reinstall Server'} css={tw`relative`}>
+        <TitledGreyBox title={'Reinstall server'} css={tw`relative`}>
             <Dialog.Confirm
                 open={modalVisible}
                 title={'Confirm server reinstallation'}

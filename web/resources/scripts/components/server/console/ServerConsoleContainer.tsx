@@ -22,7 +22,7 @@ const ServerConsoleContainer = () => {
     const isNodeUnderMaintenance = ServerContext.useStoreState((state) => state.server.data!.isNodeUnderMaintenance);
 
     return (
-        <ServerContentBlock title={'Console'}>
+        <ServerContentBlock title={'Console'} noHeading>
             {(isNodeUnderMaintenance || isInstalling || isTransferring) && (
                 <Alert type={'warning'} className={'mb-4'}>
                     {isNodeUnderMaintenance
@@ -32,26 +32,24 @@ const ServerConsoleContainer = () => {
                         : 'This server is currently being transferred to another node and all actions are unavailable.'}
                 </Alert>
             )}
-            <div className={'grid grid-cols-4 gap-4 mb-4'}>
-                <div className={'hidden sm:block sm:col-span-2 lg:col-span-3 pr-4'}>
-                    <h1 className={'font-header font-medium text-2xl text-gray-50 leading-relaxed line-clamp-1'}>
+            <div className={'flex flex-wrap items-end justify-between gap-4 mb-5'}>
+                <div className={'min-w-0 pr-4'}>
+                    <h1 className={'font-header font-semibold text-2xl text-gray-50 leading-tight line-clamp-1'}>
                         {name}
                     </h1>
-                    <p className={'text-sm line-clamp-2'}>{description}</p>
+                    <p className={'text-sm text-neutral-400 line-clamp-2'}>{description}</p>
                 </div>
-                <div className={'col-span-4 sm:col-span-2 lg:col-span-1 self-end'}>
+                <div className={'self-end'}>
                     <Can action={['control.start', 'control.stop', 'control.restart']} matchAny>
                         <PowerButtons className={'flex sm:justify-end space-x-2'} />
                     </Can>
                 </div>
             </div>
-            <div className={'grid grid-cols-4 gap-2 sm:gap-4 mb-4'}>
-                <div className={'flex col-span-4 lg:col-span-3'}>
-                    <Spinner.Suspense>
-                        <Console />
-                    </Spinner.Suspense>
-                </div>
-                <ServerDetailsBlock className={'col-span-4 lg:col-span-1 order-last lg:order-none'} />
+            <ServerDetailsBlock className={'mb-4'} />
+            <div className={'flex mb-4'}>
+                <Spinner.Suspense>
+                    <Console />
+                </Spinner.Suspense>
             </div>
             <div className={'grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-4'}>
                 <Spinner.Suspense>

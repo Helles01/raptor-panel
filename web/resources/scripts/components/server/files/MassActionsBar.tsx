@@ -67,7 +67,7 @@ const MassActionsBar = () => {
                     {loadingMessage}
                 </SpinnerOverlay>
                 <Dialog.Confirm
-                    title={'Delete Files'}
+                    title={'Delete files'}
                     open={showConfirm}
                     confirm={'Delete'}
                     onClose={() => setShowConfirm(false)}

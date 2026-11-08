@@ -39,7 +39,7 @@ const DeleteAllocationButton = ({ allocation }: Props) => {
             <Dialog.Confirm
                 open={confirm}
                 onClose={() => setConfirm(false)}
-                title={'Remove Allocation'}
+                title={'Remove allocation'}
                 confirm={'Delete'}
                 onConfirmed={deleteAllocation}
             >

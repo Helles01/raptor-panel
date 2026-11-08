@@ -1,19 +1,18 @@
 .stat_block {
-    @apply flex items-center rounded shadow-lg relative;
-    @apply col-span-3 md:col-span-2 lg:col-span-6;
-    @apply px-3 py-2 md:p-3 lg:p-4;
+    @apply flex items-center rounded-lg relative bg-surface border border-line;
+    @apply px-3 py-2.5;
 
     & > .status_bar {
         @apply w-1 h-full absolute left-0 top-0 rounded-l sm:hidden;
     }
 
     & > .icon {
-        @apply hidden flex-shrink-0 items-center justify-center rounded-lg shadow-md w-12 h-12;
+        @apply hidden flex-shrink-0 items-center justify-center rounded-md w-10 h-10;
         @apply transition-colors duration-500;
-        @apply sm:flex sm:mr-4;
+        @apply sm:flex sm:mr-3;
 
         & > svg {
-            @apply w-6 h-6 m-auto;
+            @apply w-5 h-5 m-auto;
         }
     }
 }
@@ -31,7 +30,7 @@
     }
 
     & > .container {
-        @apply rounded-t p-1 sm:p-2 bg-black min-h-[16rem] flex-1 font-mono text-sm;
+        @apply rounded-t-lg border border-line p-1 sm:p-2 bg-black min-h-[16rem] flex-1 font-mono text-sm;
 
         & #terminal {
             @apply h-full;
@@ -51,13 +50,13 @@
     }
 
     & .command_input {
-        @apply relative bg-gray-900 px-2 text-gray-100 pl-10 pr-4 py-2 w-full font-mono text-sm sm:rounded-b;
+        @apply relative bg-gray-900 px-2 text-gray-100 pl-10 pr-4 py-2 w-full font-mono text-sm sm:rounded-b-lg border-x border-line;
         @apply focus:ring-0 outline-none focus-visible:outline-none;
-        @apply border-0 border-b-2 border-transparent transition-colors duration-100;
-        @apply active:border-cyan-500 focus:border-cyan-500;
+        @apply border-0 border-b-2 border-line transition-colors duration-100;
+        @apply active:border-ember-500 focus:border-ember-500;
     }
 }
 
 .chart_container {
-    @apply bg-gray-600 rounded shadow-lg pt-2 border-b-4 border-gray-700 relative;
+    @apply bg-surface rounded-lg border border-line pt-2 relative;
 }

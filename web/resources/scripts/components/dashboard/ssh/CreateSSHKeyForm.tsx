@@ -52,7 +52,7 @@ export default () => {
                             <Field name={'name'} as={Input} />
                         </FormikFieldWrapper>
                         <FormikFieldWrapper
-                            label={'Public Key'}
+                            label={'Public key'}
                             name={'publicKey'}
                             description={'Enter your public SSH key.'}
                         >

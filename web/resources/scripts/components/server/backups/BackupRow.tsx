@@ -65,7 +65,7 @@ export default ({ backup, className }: Props) => {
                     <div css={tw`flex items-center text-sm mb-1`}>
                         {backup.completedAt !== null && !backup.isSuccessful && (
                             <span
-                                css={tw`bg-red-500 py-px px-2 rounded-full text-white text-xs uppercase border border-red-600 mr-2`}
+                                css={tw`bg-red-500 py-px px-2 rounded-full text-white text-xs border border-red-600 mr-2`}
                             >
                                 Failed
                             </span>
@@ -84,7 +84,7 @@ export default ({ backup, className }: Props) => {
                 <p title={format(backup.createdAt, 'ddd, MMMM do, yyyy HH:mm:ss')} css={tw`text-sm`}>
                     {formatDistanceToNow(backup.createdAt, { includeSeconds: true, addSuffix: true })}
                 </p>
-                <p css={tw`text-2xs text-neutral-500 uppercase mt-1`}>Created</p>
+                <p css={tw`text-2xs text-neutral-500 mt-1`}>Created</p>
             </div>
             <Can action={['backup.download', 'backup.restore', 'backup.delete']} matchAny>
                 <div css={tw`mt-4 md:mt-0 ml-6`} style={{ marginRight: '-0.5rem' }}>

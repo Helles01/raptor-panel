@@ -20,7 +20,7 @@ export default ({ schedule }: { schedule: Schedule }) => (
         <div>
             <p
                 css={[
-                    tw`py-1 px-3 rounded text-xs uppercase text-white sm:hidden`,
+                    tw`py-1 px-3 rounded text-xs text-white sm:hidden`,
                     schedule.isActive ? tw`bg-green-600` : tw`bg-neutral-400`,
                 ]}
             >
@@ -31,7 +31,7 @@ export default ({ schedule }: { schedule: Schedule }) => (
         <div>
             <p
                 css={[
-                    tw`py-1 px-3 rounded text-xs uppercase text-white hidden sm:block`,
+                    tw`py-1 px-3 rounded text-xs text-white hidden sm:block`,
                     schedule.isActive && !schedule.isProcessing ? tw`bg-green-600` : tw`bg-neutral-400`,
                 ]}
             >

@@ -32,7 +32,7 @@ const CronBox = ({ title, value }: { title: string; value: string }) => (
 const ActivePill = ({ active }: { active: boolean }) => (
     <span
         css={[
-            tw`rounded-full px-2 py-px text-xs ml-4 uppercase`,
+            tw`rounded-full px-2 py-px text-xs ml-4`,
             active ? tw`bg-green-600 text-green-100` : tw`bg-red-600 text-red-100`,
         ]}
     >
@@ -94,7 +94,7 @@ export default () => {
                                     {schedule.name}
                                     {schedule.isProcessing ? (
                                         <span
-                                            css={tw`flex items-center rounded-full px-2 py-px text-xs ml-4 uppercase bg-neutral-600 text-white`}
+                                            css={tw`flex items-center rounded-full px-2 py-px text-xs ml-4 bg-neutral-600 text-white`}
                                         >
                                             <Spinner css={tw`w-3! h-3! mr-2`} />
                                             Processing
