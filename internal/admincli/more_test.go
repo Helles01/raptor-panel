@@ -255,7 +255,7 @@ func TestAllMergesTheParts(t *testing.T) {
 
 	want := map[string][]string{
 		"user": {"create", "delete", "disable-2fa", "list"}, "apikey": {"create", "list", "revoke"}, "location": {"create", "list"},
-		"node": {"create", "list", "rotate-token"}, "nest": {"create"}, "egg": {"import"}, "settings": {"get", "list", "set"},
+		"node": {"create", "list", "rotate-token"}, "nest": {"create"}, "egg": {"import"}, "settings": {"get", "list", "set", "set-mail-password"},
 		"dbhost": {"create", "delete", "list", "rotate-password", "test", "update"},
 	}
 	if got := names(All(Services{Admin: svc, Hosts: hs, Directory: dir, Rotation: rot})); !reflect.DeepEqual(got, want) {

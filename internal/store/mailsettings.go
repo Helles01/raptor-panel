@@ -10,8 +10,8 @@ import (
 	"github.com/Helles01/raptor-panel/internal/settings"
 )
 
-// smtpPassword is the setting whose value is the password of the mail server. It is not in the settings of the panel that can be set from the
-// command line: it comes from the old panel with raptor migrate-secrets, sealed in raptor_secrets under the row of the setting.
+// smtpPassword is the setting whose value is the password of the mail server. It is not in the settings of the panel that can be listed or shown: it is
+// sealed in raptor_secrets under the row of the setting, by raptor settings set-mail-password, or from the old panel by raptor migrate-secrets.
 const smtpPassword = "mail:mailers:smtp:password"
 
 // MailSettings is what the panel sends mail with.

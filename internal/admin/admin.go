@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 
 	"github.com/Helles01/raptor-panel/internal/auth"
 	"github.com/Helles01/raptor-panel/internal/eggs"
@@ -88,6 +89,11 @@ type Store interface {
 	// ImportEgg stores an egg and its variables, or answers ErrNotFound for a nest that is not there.
 	ImportEgg(ctx context.Context, e NewEgg) (uint64, error)
 	SetSetting(ctx context.Context, key, value string) error
+	// SetMailPassword seals the password of the mail server. The row of the setting is made if there is none; a row that came from the old panel keeps its
+	// old value, which is not touched.
+	SetMailPassword(ctx context.Context, password string) error
+	// ClearMailPassword removes the sealed password, so that mail is sent without one. It is not an error that there is none.
+	ClearMailPassword(ctx context.Context) error
 }
 
 // Service does the operations.
@@ -317,4 +323,30 @@ func (s *Service) SetSetting(ctx context.Context, key, value string) error {
 		return err
 	}
 	return s.store.SetSetting(ctx, key, value)
+}
+
+// maxMailPasswordLength is the longest password of a mail server that is accepted.
+const maxMailPasswordLength = 1000
+
+// SetMailPassword sets the password the panel signs in to the mail server with. It is kept sealed, apart from the settings that can be read and
+// listed. The password is not repeated in an error: it may be one that was typed wrongly into the wrong place.
+func (s *Service) SetMailPassword(ctx context.Context, password string) error {
+	if password == "" {
+		return errors.New("the password of the mail server is empty (to remove it, clear it)")
+	}
+	if n := len([]rune(password)); n > maxMailPasswordLength {
+		return fmt.Errorf("the password of the mail server is %d characters long, at most %d are accepted", n, maxMailPasswordLength)
+	}
+	// A line end or another control character would end the line of the SMTP command that carries the password.
+	for _, r := range password {
+		if unicode.IsControl(r) {
+			return errors.New("the password of the mail server has a control character in it")
+		}
+	}
+	return s.store.SetMailPassword(ctx, password)
+}
+
+// ClearMailPassword removes the password of the mail server, for a server that needs none.
+func (s *Service) ClearMailPassword(ctx context.Context) error {
+	return s.store.ClearMailPassword(ctx)
 }

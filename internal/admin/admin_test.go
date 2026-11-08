@@ -18,22 +18,24 @@ import (
 var errBoom = errors.New("the database is down: password=hunter2")
 
 type store struct {
-	users     map[string]User // by reference
-	created   []users.Record
-	keys      []NewKey
-	keyCount  int
-	owned     int64
-	deleted   []uint64
-	no2fa     []uint64
-	locations [][2]string
-	nodes     []NewNode
-	nests     [][4]string
-	eggs      []NewEgg
-	settings  map[string]string
-	taken     string
-	noLoc     bool
-	noNest    bool
-	fail      error
+	users        map[string]User // by reference
+	created      []users.Record
+	keys         []NewKey
+	keyCount     int
+	owned        int64
+	deleted      []uint64
+	no2fa        []uint64
+	locations    [][2]string
+	nodes        []NewNode
+	nests        [][4]string
+	eggs         []NewEgg
+	settings     map[string]string
+	mailPassword string
+	mailCleared  int
+	taken        string
+	noLoc        bool
+	noNest       bool
+	fail         error
 }
 
 func (s *store) CreateUser(_ context.Context, u users.Record) (uint64, error) {
@@ -112,6 +114,19 @@ func (s *store) SetSetting(_ context.Context, key, value string) error {
 		s.settings = map[string]string{}
 	}
 	s.settings[key] = value
+	return s.fail
+}
+
+func (s *store) SetMailPassword(_ context.Context, password string) error {
+	if s.fail != nil {
+		return s.fail
+	}
+	s.mailPassword = password
+	return nil
+}
+
+func (s *store) ClearMailPassword(context.Context) error {
+	s.mailCleared++
 	return s.fail
 }
 
@@ -381,5 +396,50 @@ func TestSetSetting(t *testing.T) {
 	}
 	if _, bad := st.settings["nonsense"]; bad || len(st.settings) != 1 {
 		t.Errorf("settings = %v", st.settings)
+	}
+}
+
+func TestSetMailPassword(t *testing.T) {
+	s, st := newService(t)
+	if err := s.SetMailPassword(context.Background(), "s3cret pass"); err != nil || st.mailPassword != "s3cret pass" {
+		t.Fatalf("err = %v, stored %q", err, st.mailPassword)
+	}
+	// The limit counts characters, not bytes.
+	for name, p := range map[string]string{"1000 letters": strings.Repeat("a", 1000), "1000 characters of two bytes": strings.Repeat("é", 1000)} {
+		if err := s.SetMailPassword(context.Background(), p); err != nil || st.mailPassword != p {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	st.mailPassword = "kept"
+	for name, p := range map[string]string{
+		"empty": "", "1001 letters": strings.Repeat("a", 1001), "line end": "pass\nword", "carriage return": "pass\rword", "NUL": "pass\x00word",
+		"tab": "pass\tword", "DEL": "pass\x7fword", "escape": "pass\x1b[2Jword",
+	} {
+		err := s.SetMailPassword(context.Background(), p)
+		if err == nil || st.mailPassword != "kept" {
+			t.Errorf("%s: err = %v, stored %q", name, err, st.mailPassword)
+			continue
+		}
+		// The password that was refused is not repeated in the error.
+		if p != "" && strings.Contains(err.Error(), p) {
+			t.Errorf("%s: the error repeats the password: %v", name, err)
+		}
+	}
+
+	st.fail = errBoom
+	if err := s.SetMailPassword(context.Background(), "fine"); !errors.Is(err, errBoom) {
+		t.Errorf("a store that fails: %v", err)
+	}
+}
+
+func TestClearMailPassword(t *testing.T) {
+	s, st := newService(t)
+	if err := s.ClearMailPassword(context.Background()); err != nil || st.mailCleared != 1 {
+		t.Fatalf("err = %v, cleared %d", err, st.mailCleared)
+	}
+	st.fail = errBoom
+	if err := s.ClearMailPassword(context.Background()); !errors.Is(err, errBoom) {
+		t.Errorf("a store that fails: %v", err)
 	}
 }

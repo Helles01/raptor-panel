@@ -9,6 +9,22 @@ import (
 	"context"
 )
 
+const ensureSettingRow = `-- name: EnsureSettingRow :execlastid
+INSERT INTO settings (` + "`" + `key` + "`" + `, ` + "`" + `value` + "`" + `)
+VALUES (?, '')
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+`
+
+// The row of the setting is made empty if there is none, so that the password can be sealed under it, and its id is answered either way; a row that came from
+// the old panel keeps its value. One statement, so that two requests that both find no row take turns on the row instead of deadlocking on a shared lock.
+func (q *Queries) EnsureSettingRow(ctx context.Context, key string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, ensureSettingRow, key)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
 const settingRowID = `-- name: SettingRowID :one
 
 SELECT id
@@ -19,6 +35,20 @@ WHERE ` + "`" + `key` + "`" + ` = ?
 // What the panel sends mail with: the row of a setting, whose sealed value is the password of the mail server.
 func (q *Queries) SettingRowID(ctx context.Context, key string) (uint32, error) {
 	row := q.db.QueryRowContext(ctx, settingRowID, key)
+	var id uint32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const settingRowIDForUpdate = `-- name: SettingRowIDForUpdate :one
+SELECT id
+FROM settings
+WHERE ` + "`" + `key` + "`" + ` = ?
+FOR UPDATE
+`
+
+func (q *Queries) SettingRowIDForUpdate(ctx context.Context, key string) (uint32, error) {
+	row := q.db.QueryRowContext(ctx, settingRowIDForUpdate, key)
 	var id uint32
 	err := row.Scan(&id)
 	return id, err

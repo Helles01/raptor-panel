@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"sort"
@@ -28,6 +29,9 @@ type store struct {
 	nests    [][4]string
 	eggs     []admin.NewEgg
 	settings map[string]string
+	// mailPassword is what SetMailPassword was given last; mailCleared counts ClearMailPassword.
+	mailPassword string
+	mailCleared  int
 }
 
 func (s *store) CreateUser(_ context.Context, u users.Record) (uint64, error) {
@@ -68,6 +72,16 @@ func (s *store) ImportEgg(_ context.Context, e admin.NewEgg) (uint64, error) {
 	s.eggs = append(s.eggs, e)
 	return 7, nil
 }
+func (s *store) SetMailPassword(_ context.Context, password string) error {
+	s.mailPassword = password
+	return nil
+}
+
+func (s *store) ClearMailPassword(context.Context) error {
+	s.mailCleared++
+	return nil
+}
+
 func (s *store) SetSetting(_ context.Context, key, value string) error {
 	if s.settings == nil {
 		s.settings = map[string]string{}
@@ -113,7 +127,7 @@ func TestTheCommandsThereAre(t *testing.T) {
 		sort.Strings(got[g])
 	}
 	want := map[string][]string{
-		"user": {"create", "delete", "disable-2fa"}, "apikey": {"create"}, "location": {"create"}, "node": {"create"}, "nest": {"create"}, "egg": {"import"}, "settings": {"list", "set"},
+		"user": {"create", "delete", "disable-2fa"}, "apikey": {"create"}, "location": {"create"}, "node": {"create"}, "nest": {"create"}, "egg": {"import"}, "settings": {"list", "set", "set-mail-password"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("commands = %v", got)
@@ -342,5 +356,57 @@ func TestSettings(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(r.stdout.String()), "\n")
 	if !sort.StringsAreSorted(lines) || len(lines) < 5 || !strings.Contains(r.stdout.String(), "app:name\n") || strings.Contains(r.stdout.String(), "password") {
 		t.Errorf("list = %v", lines)
+	}
+}
+
+func TestSettingsSetMailPassword(t *testing.T) {
+	const secret = "Sm7p-pass w0rd"
+	r := newRun(t)
+	if err := r.do(secret+"\nignored second line\n", "settings", "set-mail-password", "--password-stdin"); err != nil {
+		t.Fatal(err)
+	}
+	// Only the first line is the password, and it is nowhere in what the command says.
+	if r.st.mailPassword != secret {
+		t.Errorf("stored %q", r.st.mailPassword)
+	}
+	if strings.Contains(r.stdout.String()+r.stderr.String(), secret) || r.stdout.Len() != 0 || len(r.st.settings) != 0 {
+		t.Errorf("stdout %q, stderr %q, settings %v", r.stdout.String(), r.stderr.String(), r.st.settings)
+	}
+
+	// The end of the line is not part of it, with either kind of line end.
+	if err := r.do("windows-line\r\n", "settings", "set-mail-password", "--password-stdin"); err != nil || r.st.mailPassword != "windows-line" {
+		t.Errorf("err = %v, stored %q", err, r.st.mailPassword)
+	}
+
+	if err := r.do("", "settings", "set-mail-password", "--clear"); err != nil || r.st.mailCleared != 1 || r.stdout.Len() != 0 {
+		t.Errorf("clear: err = %v, cleared %d", err, r.st.mailCleared)
+	}
+}
+
+func TestSettingsSetMailPasswordRefusesWhatItCannotDo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		stdin string
+		args  []string
+		usage bool
+	}{
+		"neither flag":                {"pw\n", nil, true},
+		"both flags":                  {"pw\n", []string{"--password-stdin", "--clear"}, true},
+		"the password as an argument": {"", []string{"hunter2"}, true},
+		"a flag nobody knows":         {"pw\n", []string{"--password-stdin", "--password", "hunter2"}, true},
+		"nothing on the input":        {"", []string{"--password-stdin"}, false},
+		"an empty line":               {"\n", []string{"--password-stdin"}, false},
+		"a control character":         {"pass\x1bword\n", []string{"--password-stdin"}, false},
+	} {
+		r := newRun(t)
+		err := r.do(tc.stdin, "settings", "set-mail-password", tc.args...)
+		if err == nil || isUsage(err) != tc.usage {
+			t.Errorf("%s: err = %v", name, err)
+		}
+		if r.st.mailPassword != "" || r.st.mailCleared != 0 {
+			t.Errorf("%s: something was done", name)
+		}
+		if strings.Contains(r.stdout.String()+r.stderr.String()+fmt.Sprint(err), "hunter2") {
+			t.Errorf("%s: the password is repeated", name)
+		}
 	}
 }

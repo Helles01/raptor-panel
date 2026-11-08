@@ -35,5 +35,5 @@ panel serves exactly the routes of the reference (`TestBuiltPanelServesTheRefere
 ## Open points
 - `egg_variables.field_type`: the reference importer passes the file's `field_type`, but no column of that name was found among the migrations; the dump will say.
 - The strict CSP of the page shell has been served and checked for its header in `TestPanelEndToEnd`, but no browser has run the frontend against it yet; this is its first test.
-- Mail: the panel sends it through the SMTP settings of the `settings` table; the password of the mail server is read from `raptor_secrets` (it comes with `raptor migrate-secrets`), and no command sets one on a fresh installation yet. Until then mail is sent without a password or not at all (see `21-build-and-serve.md`).
+- Mail: the panel sends it through the SMTP settings of the `settings` table; the password of the mail server is read from `raptor_secrets`: `raptor settings set-mail-password --password-stdin` sets it on a fresh installation (`docs/modules/24-mail-password.md`), `raptor migrate-secrets` brings the old one.
 - `raptor audit` is written (`internal/audit`) but the command needs the user's separate approval (plan 13.5).

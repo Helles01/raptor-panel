@@ -22,8 +22,8 @@ used in mail: a changed value needs a restart. The activity texts of the fronten
 ## The adapters (`internal/app/adapters.go`)
 - `reinstaller` (`settingsapi.Reinstaller`) finds the node of the server and tells it to run the install script again; `oldNodes` (`remoteapi.OldNodes`) deletes a moved server on the node it was on, as the node is stored now.
 - `settingsSender` (`outbox.Sender`) reads the mail settings **at the moment of sending**, so a change needs no restart. No mail server set up → the job is set aside (permanent); settings that are wrong, or a database that is
-  away → tried again (the outbox backs off, ten tries). The password of the mail server is read from `raptor_secrets` (`store.MailSettings`); **no command sets one on a fresh installation yet** — it arrives with
-  `raptor migrate-secrets` from an old panel. This is an open point.
+  away → tried again (the outbox backs off, ten tries). The password of the mail server is read from `raptor_secrets` (`store.MailSettings`); on a fresh installation `raptor settings set-mail-password --password-stdin` sets it (`docs/modules/24-mail-password.md`); from an old panel it arrives with
+  `raptor migrate-secrets`.
 
 ## The loops
 The outbox (every `jobs.outbox_seconds`; mail and the orders to take a user's access from a node), the scheduler (every `jobs.schedule_seconds`, after clearing the marks a crash left), and the housekeeping

@@ -48,7 +48,7 @@ func Commands(s *admin.Service) map[string]map[string]Handler {
 		"node":     {"create": c.nodeCreate},
 		"nest":     {"create": c.nestCreate},
 		"egg":      {"import": c.eggImport},
-		"settings": {"set": c.settingsSet, "list": c.settingsList},
+		"settings": {"set": c.settingsSet, "list": c.settingsList, "set-mail-password": c.settingsMailPassword},
 	}
 }
 
@@ -345,5 +345,35 @@ func (c *commands) settingsList(_ context.Context, e Env, args []string) error {
 	for _, k := range settings.Keys() {
 		fmt.Fprintln(e.Stdout, k)
 	}
+	return nil
+}
+
+// settingsMailPassword sets or removes the password of the mail server. It is read from the standard input, never from an argument, which every
+// process on the machine can read, and it is not one of the settings that can be listed or shown.
+func (c *commands) settingsMailPassword(ctx context.Context, e Env, args []string) error {
+	fs := flags("settings set-mail-password")
+	fromStdin := fs.Bool("password-stdin", false, "read the password from the first line of the standard input")
+	clear := fs.Bool("clear", false, "remove the password, for a mail server that needs none")
+	if _, err := parse(fs, args, 0); err != nil {
+		return err
+	}
+	if *fromStdin == *clear {
+		return usagef("settings set-mail-password: give --password-stdin or --clear, one of them")
+	}
+	if *clear {
+		if err := c.s.ClearMailPassword(ctx); err != nil {
+			return err
+		}
+		fmt.Fprintln(e.Stderr, "Removed the password of the mail server.")
+		return nil
+	}
+	password, err := readLine(e.Stdin)
+	if err != nil {
+		return err
+	}
+	if err := c.s.SetMailPassword(ctx, password); err != nil {
+		return err
+	}
+	fmt.Fprintln(e.Stderr, "Set the password of the mail server. Mail is sent with it from the next message on.")
 	return nil
 }

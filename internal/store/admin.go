@@ -336,6 +336,34 @@ func (s adminStore) SetSetting(ctx context.Context, key, value string) error {
 	return nil
 }
 
+// SetMailPassword seals the password of the mail server under the row of its setting, in one transaction with the making of the row.
+func (s adminStore) SetMailPassword(ctx context.Context, password string) error {
+	key := settings.StorageKey(smtpPassword)
+	return s.inTx(ctx, func(q *dbq.Queries) error {
+		id, err := q.EnsureSettingRow(ctx, key)
+		if err != nil {
+			return fmt.Errorf("make the setting of the mail password: %w", err)
+		}
+		return s.seal(ctx, q, "settings", uint64(id), "value", password)
+	})
+}
+
+// ClearMailPassword removes the sealed password. The row of the setting stays: it may hold the old panel's value, which is not touched.
+func (s adminStore) ClearMailPassword(ctx context.Context) error {
+	return s.inTx(ctx, func(q *dbq.Queries) error {
+		id, err := q.SettingRowIDForUpdate(ctx, settings.StorageKey(smtpPassword))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("find the setting of the mail password: %w", err)
+		}
+		if err := q.DeleteSecret(ctx, dbq.DeleteSecretParams{TableName: "settings", RowID: uint64(id), ColumnName: "value"}); err != nil {
+			return fmt.Errorf("remove the sealed mail password: %w", err)
+		}
+		return nil
+	})
+}
+
 // --- what the commands look at
 
 func (s adminDirectory) ListUsers(ctx context.Context) ([]admin.User, error) {

@@ -95,6 +95,9 @@ type Querier interface {
 	EnableTwoFactor(ctx context.Context, arg EnableTwoFactorParams) (int64, error)
 	// The jobs of the outbox (migration 0002): a change that the world must hear of is stored with the change, and worked through afterwards.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) error
+	// The row of the setting is made empty if there is none, so that the password can be sealed under it, and its id is answered either way; a row that came from
+	// the old panel keeps its value. One statement, so that two requests that both find no row take turns on the row instead of deadlocking on a shared lock.
+	EnsureSettingRow(ctx context.Context, key string) (int64, error)
 	// users.external_id has an index but no unique key, so the rule that it is unique is kept here: the rows are read FOR UPDATE, which locks the
 	// place in the index too and makes a concurrent request with the same value wait for this one.
 	ExternalIDHolders(ctx context.Context, arg ExternalIDHoldersParams) ([]uint32, error)
@@ -222,6 +225,7 @@ type Querier interface {
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) (int64, error)
 	// What the panel sends mail with: the row of a setting, whose sealed value is the password of the mail server.
 	SettingRowID(ctx context.Context, key string) (uint32, error)
+	SettingRowIDForUpdate(ctx context.Context, key string) (uint32, error)
 	SettingValue(ctx context.Context, key string) (string, error)
 	SoftDeleteBackup(ctx context.Context, arg SoftDeleteBackupParams) (int64, error)
 	// The reference deletes an SSH key softly, and so does this.
