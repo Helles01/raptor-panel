@@ -381,6 +381,21 @@ func TestPanelEndToEnd(t *testing.T) {
 	if subs, _ := b.json("GET", "/api/client/servers/11111111/users", nil, 200)["data"].([]any); len(subs) != 1 {
 		t.Errorf("subusers = %v", subs)
 	}
+
+	// A setting changed from the command line applies to the panel that is running, with no restart. The owners' own allocations are off until the
+	// switch is turned on; the free allocations are moved to another address, so that the port of the new one has to come from the range that is set.
+	sqlDB.Exec("UPDATE allocations SET ip = '10.9.9.9' WHERE server_id IS NULL")
+	if status, _, out := b.do("POST", "/api/client/servers/11111111/network/allocations", nil, b.xsrf()); status != 400 || !strings.Contains(string(out), "auto-allocation is not enabled") {
+		t.Errorf("an allocation with the switch off = %d\n%s", status, out)
+	}
+	do("", "settings", "set", "pterodactyl:client_features:allocations:enabled", "true")
+	do("", "settings", "set", "pterodactyl:client_features:allocations:range_start", "30000")
+	do("", "settings", "set", "pterodactyl:client_features:allocations:range_end", "30010")
+	added := b.json("POST", "/api/client/servers/11111111/network/allocations", nil, 200)
+	if port, _ := attr(added, "attributes", "port").(float64); port < 30000 || port > 30010 {
+		t.Errorf("the new allocation = %v, want a port from 30000 to 30010", added)
+	}
+
 	b.json("POST", "/api/client/servers/11111111/backups", map[string]any{"name": "x"}, 504) // no node behind it: it is told so, and nothing is left behind
 	var backups int
 	sqlDB.QueryRow("SELECT COUNT(*) FROM backups WHERE deleted_at IS NULL").Scan(&backups)

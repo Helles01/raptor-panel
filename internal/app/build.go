@@ -185,10 +185,6 @@ type builder struct {
 	hosts    *dbhosts.Executor
 	daemon   appservers.Daemon
 	texts    map[string][]string
-	// What the routes of the owner need that comes from settings.
-	autoAllocations      bool
-	rangeStart, rangeEnd int
-
 	backups  *backupapi.Service
 	runner   *schedules.Runner
 	err      error
@@ -252,7 +248,8 @@ func (b *builder) prepare(ctx context.Context) (err error) {
 		return err
 	}
 
-	if b.autoAllocations, b.rangeStart, b.rangeEnd, err = b.allocationSettings(ctx); err != nil {
+	// The settings of the allocations are read at each request; they are read once here too, so that one that was stored wrongly stops the start.
+	if _, err = b.allocationPolicy(ctx); err != nil {
 		return err
 	}
 
@@ -283,29 +280,29 @@ func (b *builder) prepare(ctx context.Context) (err error) {
 	return nil
 }
 
-// allocationSettings reads whether the owners of servers may add allocations themselves, and from which ports.
-func (b *builder) allocationSettings(ctx context.Context) (enabled bool, start, end int, err error) {
+// allocationPolicy reads whether the owners of servers may add allocations themselves, and from which ports. It is what allocapi asks at each request.
+func (b *builder) allocationPolicy(ctx context.Context) (allocapi.Policy, error) {
 	dir := b.st.AdminDirectoryStore
 	on, err := setting(ctx, dir, "pterodactyl:client_features:allocations:enabled")
 	if err != nil {
-		return false, 0, 0, err
+		return allocapi.Policy{}, err
 	}
-	enabled = on == "true"
+	p := allocapi.Policy{Enabled: on == "true"}
 	for _, r := range []struct {
 		key string
 		dst *int
-	}{{"pterodactyl:client_features:allocations:range_start", &start}, {"pterodactyl:client_features:allocations:range_end", &end}} {
+	}{{"pterodactyl:client_features:allocations:range_start", &p.RangeStart}, {"pterodactyl:client_features:allocations:range_end", &p.RangeEnd}} {
 		v, err := setting(ctx, dir, r.key)
 		if err != nil {
-			return false, 0, 0, err
+			return allocapi.Policy{}, err
 		}
 		if v != "" {
 			if *r.dst, err = strconv.Atoi(v); err != nil {
-				return false, 0, 0, fmt.Errorf("app: the setting %s is %q, which is not a port", r.key, v)
+				return allocapi.Policy{}, fmt.Errorf("app: the setting %s is %q, which is not a port", r.key, v)
 			}
 		}
 	}
-	return enabled, start, end, nil
+	return p, nil
 }
 
 // routes makes every package of endpoints and registers it. Every browser-facing route has the session loaded and the anti-CSRF token checked in
@@ -373,7 +370,7 @@ func (b *builder) routes(ctx context.Context) error {
 		Logger: log, Random: random,
 	}))
 	use("allocapi", client)(allocapi.New(allocapi.Deps{
-		Store: st.AllocapiStore, Activity: st.AllocapiActivityLog, AddLimiter: lim.AllocationAdd, AutoEnabled: b.autoAllocations, RangeStart: b.rangeStart, RangeEnd: b.rangeEnd,
+		Store: st.AllocapiStore, Activity: st.AllocapiActivityLog, AddLimiter: lim.AllocationAdd, Policy: b.allocationPolicy,
 		Logger: log, Random: random,
 	}))
 	use("settingsapi", client)(settingsapi.New(settingsapi.Deps{

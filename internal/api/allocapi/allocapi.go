@@ -88,13 +88,20 @@ type Deps struct {
 	Activity ActivityLog
 	// AddLimiter allows AddLimit additions in AddWindow for a server.
 	AddLimiter *middleware.Limiter
-	// AutoEnabled is the panel's switch for users adding allocations; the range is where a new port is chosen.
-	AutoEnabled bool
-	RangeStart  int
-	RangeEnd    int
-	Logger      *slog.Logger
+	// Policy answers what the administrator has set about users adding allocations. It is asked at each request, so that a setting changed from the
+	// command line applies to the panel that is running.
+	Policy func(ctx context.Context) (Policy, error)
+	Logger *slog.Logger
 	// Random defaults to crypto/rand.
 	Random io.Reader
+}
+
+// Policy is the administrator's say on allocations that users add for themselves.
+type Policy struct {
+	// Enabled is the panel's switch for users adding allocations.
+	Enabled bool
+	// RangeStart and RangeEnd are where a new port is chosen.
+	RangeStart, RangeEnd int
 }
 
 // Handlers are the endpoints.
@@ -104,8 +111,8 @@ type Handlers struct {
 
 // New checks the dependencies and returns the endpoints.
 func New(d Deps) (*Handlers, error) {
-	if d.Store == nil || d.Activity == nil || d.AddLimiter == nil || d.Logger == nil {
-		return nil, errors.New("allocapi: the store, the activity log, the limiter and a logger are required")
+	if d.Store == nil || d.Activity == nil || d.AddLimiter == nil || d.Policy == nil || d.Logger == nil {
+		return nil, errors.New("allocapi: the store, the activity log, the limiter, the policy and a logger are required")
 	}
 	if d.Random == nil {
 		d.Random = rand.Reader
@@ -204,12 +211,18 @@ func (h *Handlers) Add(c echo.Context) error {
 	if allowed, retry := h.d.AddLimiter.Allow(p.Server.UUID); !allowed {
 		return apierr.TooManyRequests(retry)
 	}
+	policy, err := h.d.Policy(c.Request().Context())
+	if err != nil {
+		return apierr.Internal(fmt.Errorf("read the settings of the allocations: %w", err))
+	}
 	a, err := h.d.Store.Assign(c.Request().Context(), AssignRequest{
 		ServerID: p.Server.ID,
 		Check: func(limit *int64, count int64) error {
-			return nodes.CheckCanAddAllocation(h.d.AutoEnabled, limit, count)
+			return nodes.CheckCanAddAllocation(policy.Enabled, limit, count)
 		},
-		Port: func(used []int) (int, error) { return nodes.PickPort(h.d.RangeStart, h.d.RangeEnd, used, h.d.Random) },
+		Port: func(used []int) (int, error) {
+			return nodes.PickPort(policy.RangeStart, policy.RangeEnd, used, h.d.Random)
+		},
 	})
 	switch {
 	case isRule(err):

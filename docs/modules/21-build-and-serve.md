@@ -16,8 +16,9 @@ it until Ctrl-C or SIGTERM. `storesOf` (`cmd/raptor/stores.go`) names the SQL im
 
 ## What has no place in the configuration yet
 `app.DatabasesEnabled`, `DatabasesAllowRandom`, `HideAdminActivity`, `BackupThrottleLimit`/`Period` (2 in 10 minutes), and the notices of finished installations (both on) are constants with the
-reference's values. The owners' own allocations (on/off and the port range) are read **once at start** from the settings `pterodactyl:client_features:allocations:*`, and so is the name of the panel
-used in mail: a changed value needs a restart. The activity texts of the frontend (`en/activity.json`) tell which properties of an entry its text shows.
+reference's values. The owners' own allocations (on/off and the port range, the settings `pterodactyl:client_features:allocations:*`) are read **at each request** (`allocapi.Policy`, three small reads), so
+`raptor settings set …` applies to a panel that is running; they are read once at start as well, so that a value stored wrongly stops the start rather than failing a request later. The name of the panel
+used in mail and as the issuer of two-factor codes is read **once at start**: a changed value needs a restart (it is shown by the page at once; only the mail and the issuer wait). The activity texts of the frontend (`en/activity.json`) tell which properties of an entry its text shows.
 
 ## The adapters (`internal/app/adapters.go`)
 - `reinstaller` (`settingsapi.Reinstaller`) finds the node of the server and tells it to run the install script again; `oldNodes` (`remoteapi.OldNodes`) deletes a moved server on the node it was on, as the node is stored now.

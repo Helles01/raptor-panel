@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -153,6 +154,10 @@ type rig struct {
 	activity *activityLog
 	logs     *bytes.Buffer
 	handlers *Handlers
+	// policy is what the handlers are told at each request; a test changes it between two requests, as a command line change of a setting would.
+	policy      Policy
+	policyErr   error
+	policyReads int
 }
 
 type options struct {
@@ -168,7 +173,7 @@ func newRig(t *testing.T, opts ...func(*options)) *rig {
 		f(&o)
 	}
 	limit := int64(5)
-	r := &rig{t: t, activity: &activityLog{}, logs: &bytes.Buffer{}}
+	r := &rig{t: t, activity: &activityLog{}, logs: &bytes.Buffer{}, policy: Policy{Enabled: !o.disabled, RangeStart: o.start, RangeEnd: o.end}}
 	r.store = &store{
 		allocs: []clientapi.Allocation{
 			{ID: 1, IP: "10.0.0.5", Port: 25565, Notes: s("main")},
@@ -192,7 +197,7 @@ func newRig(t *testing.T, opts ...func(*options)) *rig {
 		t.Fatal(err)
 	}
 	h, err := New(Deps{
-		Store: r.store, Activity: r.activity, AddLimiter: limiter, AutoEnabled: !o.disabled, RangeStart: o.start, RangeEnd: o.end,
+		Store: r.store, Activity: r.activity, AddLimiter: limiter, Policy: func(context.Context) (Policy, error) { r.policyReads++; return r.policy, r.policyErr },
 		Logger: slog.New(slog.NewTextHandler(r.logs, nil)), Random: bytes.NewReader(make([]byte, 1024)),
 	})
 	if err != nil {
@@ -572,5 +577,62 @@ func TestNewNeedsEverything(t *testing.T) {
 		if _, err := New(d); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+// What the administrator sets is read at each request: a setting changed from the command line applies to a panel that is running.
+func TestAddFollowsTheSettingsAtEachRequest(t *testing.T) {
+	r := newRig(t, func(o *options) { o.disabled = true })
+	if rp := r.do(ada, "POST", "", ""); rp.Status != 400 || rp.Detail() != "Server auto-allocation is not enabled for this instance." {
+		t.Fatalf("switched off: %d %s", rp.Status, rp.Raw)
+	}
+
+	r.policy.Enabled = true
+	rp := r.do(ada, "POST", "", "")
+	if rp.Status != 200 || rp.At("attributes", "port") != 25568.0 {
+		t.Fatalf("switched on: %d %s", rp.Status, rp.Raw)
+	}
+	if r.policyReads != 2 {
+		t.Errorf("the policy was read %d times for two requests", r.policyReads)
+	}
+
+	// A new range counts from the next request on, too.
+	r2 := newRig(t)
+	r2.policy.RangeStart, r2.policy.RangeEnd = 30000, 30000
+	if rp := r2.do(ada, "POST", "", ""); rp.Status != 200 || rp.At("attributes", "port") != 30000.0 {
+		t.Errorf("the new range: %d %s", rp.Status, rp.Raw)
+	}
+}
+
+// A request that was refused by the limiter does not read the settings, and one that cannot read them adds nothing.
+func TestAddWhenTheSettingsCannotBeRead(t *testing.T) {
+	r := newRig(t)
+	r.policyErr = errors.New("the database is away: password=hunter2")
+	rp := r.do(ada, "POST", "", "")
+	if rp.Status != 500 || strings.Contains(string(rp.Raw), "hunter2") {
+		t.Errorf("answer = %d %s", rp.Status, rp.Raw)
+	}
+	if len(r.store.allocs) != 3 || len(r.activity.entries) != 0 {
+		t.Error("an allocation was added or an entry written")
+	}
+
+	r = newRig(t)
+	for i := 0; i < AddLimit; i++ {
+		r.do(ada, "POST", "", "")
+	}
+	reads := r.policyReads
+	if rp := r.do(ada, "POST", "", ""); rp.Status != 429 || r.policyReads != reads {
+		t.Errorf("throttled: %d, reads %d -> %d", rp.Status, reads, r.policyReads)
+	}
+}
+
+func TestNewNeedsThePolicy(t *testing.T) {
+	limiter, err := middleware.NewLimiter(AddLimit, AddWindow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Deps{Store: &store{}, Activity: &activityLog{}, AddLimiter: limiter, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err == nil {
+		t.Error("handlers without a policy")
 	}
 }
