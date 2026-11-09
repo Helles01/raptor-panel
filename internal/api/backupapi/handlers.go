@@ -34,8 +34,8 @@ const (
 	atom = "2006-01-02T15:04:05-07:00"
 )
 
-// errUnsupportedDisk is for a backup that is not kept on the node: S3 is not handled (C-060).
-var errUnsupportedDisk = errors.New("This backup is stored on a disk that this panel cannot use yet: only backups kept on the node can be downloaded, restored or deleted.")
+// errUnsupportedDisk is for a backup that is kept somewhere this panel is not set up to reach: S3 without the S3 settings, or a disk nobody knows (C-060).
+var errUnsupportedDisk = errors.New("This backup is stored on a disk that this panel is not set up to use: a backup kept on S3 needs the S3 settings of the panel.")
 
 type backupAttributes struct {
 	UUID         string   `json:"uuid"`
@@ -246,6 +246,16 @@ func (h *Handlers) Download(c echo.Context) error {
 	if err := r.State().CanDownload(); err != nil {
 		return apierr.BadRequest(err.Error())
 	}
+	if r.Disk == backups.DiskS3 && h.d.Archives != nil {
+		// The archive is on S3: the address is signed here, good for five minutes, and the browser goes to the bucket itself.
+		url, err := h.d.Archives.DownloadURL(p.Server.UUID, r.UUID, DownloadValidity)
+		if err != nil {
+			return apierr.Internal(fmt.Errorf("sign the address of backup %s: %w", r.UUID, err))
+		}
+		h.log(c, p, activity.ServerBackupDownload, r, map[string]any{"name": r.Name})
+		c.Response().Header().Set("Cache-Control", "no-store")
+		return c.JSON(http.StatusOK, map[string]any{"object": "signed_url", "attributes": map[string]string{"url": url}})
+	}
 	if r.Disk != backups.DiskWings {
 		return apierr.BadRequest(errUnsupportedDisk.Error())
 	}
@@ -302,7 +312,17 @@ func (h *Handlers) Restore(c echo.Context) error {
 	if err := r.State().CanRestore(p.Server.State.Status); err != nil {
 		return apierr.BadRequest(err.Error())
 	}
-	if r.Disk != backups.DiskWings {
+	var downloadURL string
+	switch {
+	case r.Disk == backups.DiskWings:
+	case r.Disk == backups.DiskS3 && h.d.Archives != nil:
+		// The node fetches the archive from the bucket with an address that is good for five minutes.
+		u, err := h.d.Archives.DownloadURL(p.Server.UUID, r.UUID, DownloadValidity)
+		if err != nil {
+			return apierr.Internal(fmt.Errorf("sign the address of backup %s: %w", r.UUID, err))
+		}
+		downloadURL = u
+	default:
 		return apierr.BadRequest(errUnsupportedDisk.Error())
 	}
 
@@ -321,7 +341,7 @@ func (h *Handlers) Restore(c echo.Context) error {
 	case !marked:
 		return apierr.BadRequest(backups.ErrServerBusy.Error())
 	}
-	if err := h.d.Daemon.Restore(ctx, target.Node, target.UUID, r.UUID, r.Disk, body.Truncate.V, ""); err != nil {
+	if err := h.d.Daemon.Restore(ctx, target.Node, target.UUID, r.UUID, r.Disk, body.Truncate.V, downloadURL); err != nil {
 		if _, undoErr := h.d.Store.SetServerStatus(ctx, p.Server.ID, servers.StatusRestoringBackup, p.Server.State.Status); undoErr != nil {
 			h.d.Logger.Error("the status of a server was not put back after a restore failed", "server", p.Server.ID, "error", undoErr)
 		}
@@ -345,11 +365,22 @@ func (h *Handlers) Delete(c echo.Context) error {
 	if err := r.State().CanDelete(); err != nil {
 		return apierr.Display(err.Error())
 	}
+	ctx := c.Request().Context()
+	if r.Disk == backups.DiskS3 && h.d.Archives != nil {
+		// The archive goes from the bucket first, then the row: if the bucket refuses, the backup is still listed and can be deleted again.
+		if err := h.d.Archives.Delete(ctx, p.Server.UUID, r.UUID); err != nil {
+			return apierr.Internal(fmt.Errorf("delete the archive of backup %s: %w", r.UUID, err))
+		}
+		if err := h.d.Store.Delete(ctx, p.Server.ID, r.ID); err != nil {
+			return storeError(err)
+		}
+		h.log(c, p, activity.ServerBackupDelete, r, map[string]any{"name": r.Name, "failed": !r.Successful})
+		return c.NoContent(http.StatusNoContent)
+	}
 	if r.Disk != backups.DiskWings {
 		return apierr.BadRequest(errUnsupportedDisk.Error())
 	}
 
-	ctx := c.Request().Context()
 	target, err := h.d.Targets.For(ctx, p.Server.ID)
 	if err != nil {
 		if errors.Is(err, controlapi.ErrNotFound) {

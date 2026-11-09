@@ -54,7 +54,7 @@ func openPanel(ctx context.Context, e *env, configPath string) (*running, error)
 	if err != nil {
 		return nil, err
 	}
-	for _, v := range []interface{ Validate() error }{cfg.App, cfg.DB, cfg.HTTP, cfg.Wings, cfg.Log, cfg.Jobs, cfg.Web, cfg.DBHosts} {
+	for _, v := range []interface{ Validate() error }{cfg.App, cfg.DB, cfg.HTTP, cfg.Wings, cfg.Log, cfg.Jobs, cfg.Web, cfg.DBHosts, cfg.Backups} {
 		if err := v.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid configuration: %w", err)
 		}

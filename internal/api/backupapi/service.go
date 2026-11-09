@@ -30,6 +30,10 @@ type ServiceDeps struct {
 	Store   Store
 	Targets controlapi.Targets
 	Daemon  Daemon
+	// Archives is where backups kept on S3 are; nil when the panel has no S3 settings.
+	Archives Archives
+	// Disk is where new backups are kept: backups.DiskWings (the default) or backups.DiskS3.
+	Disk string
 	// ThrottleLimit backups may be started in ThrottlePeriod for a server; a period of 0 turns it off.
 	ThrottleLimit  int
 	ThrottlePeriod time.Duration
@@ -47,6 +51,17 @@ type Service struct{ d ServiceDeps }
 func NewService(d ServiceDeps) (*Service, error) {
 	if d.Store == nil || d.Targets == nil || d.Daemon == nil || d.Logger == nil {
 		return nil, errors.New("backupapi: the store, the target store, the daemon and a logger are required")
+	}
+	switch d.Disk {
+	case "":
+		d.Disk = backups.DiskWings
+	case backups.DiskWings:
+	case backups.DiskS3:
+		if d.Archives == nil {
+			return nil, errors.New("backupapi: backups kept on S3 need the archives of S3")
+		}
+	default:
+		return nil, errors.New("backupapi: backups are kept on the node (wings) or on S3 (s3)")
 	}
 	if d.Now == nil {
 		d.Now = time.Now
@@ -69,7 +84,7 @@ func (s *Service) Start(ctx context.Context, serverID uint64, p StartParams) (Re
 	started, err := s.d.Store.Start(ctx, StartRequest{
 		ServerID: serverID,
 		Since:    s.throttleSince(),
-		Backup:   NewBackup{UUID: uuid, Name: p.Name, Disk: backups.DiskWings, Ignored: p.Ignored, Locked: p.Locked},
+		Backup:   NewBackup{UUID: uuid, Name: p.Name, Disk: s.d.Disk, Ignored: p.Ignored, Locked: p.Locked},
 		Check: func(limit *int64, existing []backups.Existing, startedAt []time.Time) (backups.Admission, error) {
 			if err := backups.Throttle(startedAt, s.d.Now(), s.d.ThrottleLimit, s.d.ThrottlePeriod); err != nil {
 				return backups.Admission{}, err
@@ -85,11 +100,8 @@ func (s *Service) Start(ctx context.Context, serverID uint64, p StartParams) (Re
 	target, err := s.d.Targets.For(ctx, serverID)
 	if err == nil {
 		if started.Pruned != nil {
-			// The row of the oldest backup went with the new one; its archive goes from the node too. A node that does not have it
-			// is no hindrance.
-			if perr := s.d.Daemon.Delete(ctx, target.Node, target.UUID, started.Pruned.UUID); perr != nil {
-				s.d.Logger.Warn("the archive of a replaced backup was not deleted on the node", "server", serverID, "backup", started.Pruned.UUID, "error", perr)
-			}
+			// The row of the oldest backup went with the new one; its archive goes too.
+			s.removeArchive(ctx, target, serverID, *started.Pruned)
 		}
 		err = s.d.Daemon.Create(ctx, target.Node, target.UUID, rec.Disk, rec.UUID, strings.Join(p.Ignored, "\n"))
 	}
@@ -108,4 +120,22 @@ func (s *Service) throttleSince() time.Time {
 		return time.Time{}
 	}
 	return s.d.Now().Add(-s.d.ThrottlePeriod)
+}
+
+// removeArchive deletes the archive of a backup whose row went to make room for a new one: from the node for a backup kept there, from the bucket for one
+// on S3. A node that does not have it is no hindrance, and neither is an archive that cannot be removed now: the new backup is made all the same, and the
+// failure is in the log.
+func (s *Service) removeArchive(ctx context.Context, target controlapi.Target, serverID uint64, old Record) {
+	switch {
+	case old.Disk == backups.DiskS3 && s.d.Archives != nil:
+		if err := s.d.Archives.Delete(ctx, target.UUID, old.UUID); err != nil {
+			s.d.Logger.Warn("the archive of a replaced backup was not deleted from S3", "server", serverID, "backup", old.UUID, "error", err)
+		}
+	case old.Disk == backups.DiskWings:
+		if err := s.d.Daemon.Delete(ctx, target.Node, target.UUID, old.UUID); err != nil {
+			s.d.Logger.Warn("the archive of a replaced backup was not deleted on the node", "server", serverID, "backup", old.UUID, "error", err)
+		}
+	default:
+		s.d.Logger.Warn("the archive of a replaced backup is on a disk this panel is not set up for and was left where it is", "server", serverID, "backup", old.UUID, "disk", old.Disk)
+	}
 }

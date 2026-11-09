@@ -123,6 +123,9 @@ type store struct {
 	restoreEnds        []uint64
 	failBackups        error
 	completeBackupRace bool
+	// uploadIDs is what SetUploadID kept, by backup; uploadRace makes it answer that the backup had ended meanwhile.
+	uploadIDs  map[uint64]string
+	uploadRace bool
 	// extraReset are candidates a careless store would add to what it found.
 	extraReset []ResetCandidate
 }
@@ -354,6 +357,10 @@ func newStore(t *testing.T) *store {
 		{ID: 2, ServerID: 100, NodeID: node1, UUID: backupUUIDN(2), Name: "Done", Disk: "wings", Completed: true, Successful: true},
 		{ID: 3, ServerID: 105, NodeID: node2, UUID: backupUUIDN(3), Name: "Elsewhere", Disk: "wings"},
 		{ID: 4, ServerID: 103, NodeID: node1, UUID: backupUUIDN(4), Name: "Nightly", Disk: "wings", Completed: true, Successful: true},
+		// On S3: 5 has been given no addresses yet, 6 has (its upload is "up-6"), 7 is of the other node.
+		{ID: 5, ServerID: 100, NodeID: node1, ServerUUID: serverUUID100, UUID: backupUUIDN(5), Name: "Cloud", Disk: "s3"},
+		{ID: 6, ServerID: 100, NodeID: node1, ServerUUID: serverUUID100, UUID: backupUUIDN(6), Name: "Cloud 2", Disk: "s3", UploadID: "up-6"},
+		{ID: 7, ServerID: 105, NodeID: node2, ServerUUID: serverUUID100, UUID: backupUUIDN(7), Name: "Cloud 3", Disk: "s3", UploadID: "up-7"},
 	}
 	for id, name := range map[uint64]string{ada: "ada", root: "root", bob: "bob", cleo: "cleo", eve: "eve"} {
 		s.users[name] = SFTPUser{ID: id, UUID: userUUID(id), Admin: id == root, PasswordHash: adaHash}
@@ -408,8 +415,12 @@ func newStore(t *testing.T) *store {
 }
 
 type options struct {
-	notify servers.NotifyConfig
+	notify  servers.NotifyConfig
+	uploads Uploads
 }
+
+// withUploads sets the panel up for S3 with the fake that is given.
+func withUploads(u *fakeUploads) func(*options) { return func(o *options) { o.uploads = u } }
 
 type rig struct {
 	handlers *Handlers
@@ -433,6 +444,7 @@ func newRig(t *testing.T, opts ...func(*options)) *rig {
 	logs := &bytes.Buffer{}
 	h, err := New(Deps{
 		Servers: s, Users: s, Activity: s, Events: s, Outbox: s, OldNodes: s, Backups: s,
+		Uploads:  o.uploads,
 		Failures: middleware.NewTracker(), Site: site, Notify: o.notify,
 		Logger: slog.New(slog.NewTextHandler(logs, nil)), Now: func() time.Time { return apitest.Now },
 	})
@@ -493,4 +505,80 @@ func (s *store) FinishRestore(_ context.Context, serverID uint64) (bool, error) 
 	defer s.mu.Unlock()
 	s.restoreEnds = append(s.restoreEnds, serverID)
 	return s.restoring[serverID], s.failBackups
+}
+
+// serverUUID100 is the server of the backups of the world that are on S3.
+const serverUUID100 = "11111111-1111-4111-8111-111111111111"
+
+func (s *store) SetUploadID(_ context.Context, id uint64, uploadID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failBackups != nil {
+		return false, s.failBackups
+	}
+	if s.uploadRace {
+		return false, nil
+	}
+	if s.uploadIDs == nil {
+		s.uploadIDs = map[uint64]string{}
+	}
+	s.uploadIDs[id] = uploadID
+	return true, nil
+}
+
+// fakeUploads is the S3 side: it makes up the addresses and remembers what it was asked.
+type fakeUploads struct {
+	mu       sync.Mutex
+	partSize int64
+	begins   []fakeBegin
+	finishes []fakeFinish
+	aborts   []fakeAbort
+
+	beginErr, finishErr, abortErr error
+}
+
+type fakeBegin struct {
+	Server, Backup string
+	Size           int64
+}
+
+type fakeFinish struct {
+	Server, Backup, Upload string
+	Parts                  []UploadedPart
+	Size                   int64
+}
+
+type fakeAbort struct{ Server, Backup, Upload string }
+
+func (u *fakeUploads) Begin(_ context.Context, serverUUID, backupUUID string, size int64) (Upload, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.begins = append(u.begins, fakeBegin{serverUUID, backupUUID, size})
+	if u.beginErr != nil {
+		return Upload{}, u.beginErr
+	}
+	part := u.partSize
+	if part == 0 {
+		part = 100
+	}
+	n := (size + part - 1) / part
+	up := Upload{ID: "upload-" + backupUUID[:8], PartSize: part}
+	for i := int64(1); i <= n; i++ {
+		up.PartURLs = append(up.PartURLs, fmt.Sprintf("https://bucket.example.com/%s/%s.tar.gz?partNumber=%d&uploadId=%s", serverUUID, backupUUID, i, up.ID))
+	}
+	return up, nil
+}
+
+func (u *fakeUploads) Finish(_ context.Context, serverUUID, backupUUID, uploadID string, parts []UploadedPart, size int64) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.finishes = append(u.finishes, fakeFinish{serverUUID, backupUUID, uploadID, parts, size})
+	return u.finishErr
+}
+
+func (u *fakeUploads) Abort(_ context.Context, serverUUID, backupUUID, uploadID string) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.aborts = append(u.aborts, fakeAbort{serverUUID, backupUUID, uploadID})
+	return u.abortErr
 }

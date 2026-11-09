@@ -41,11 +41,13 @@ import (
 	"github.com/Helles01/raptor-panel/internal/api/subuserapi"
 	"github.com/Helles01/raptor-panel/internal/auth/csrf"
 	"github.com/Helles01/raptor-panel/internal/auth/session"
+	"github.com/Helles01/raptor-panel/internal/backups"
 	"github.com/Helles01/raptor-panel/internal/config"
 	"github.com/Helles01/raptor-panel/internal/dbhosts"
 	"github.com/Helles01/raptor-panel/internal/mail"
 	"github.com/Helles01/raptor-panel/internal/maintenance"
 	"github.com/Helles01/raptor-panel/internal/outbox"
+	"github.com/Helles01/raptor-panel/internal/s3"
 	"github.com/Helles01/raptor-panel/internal/schedules"
 	"github.com/Helles01/raptor-panel/internal/servers"
 	"github.com/Helles01/raptor-panel/internal/taskexec"
@@ -185,6 +187,10 @@ type builder struct {
 	hosts    *dbhosts.Executor
 	daemon   appservers.Daemon
 	texts    map[string][]string
+	// Where backups are kept: archives and uploads are nil unless the S3 settings are given, and disk is where the new ones go.
+	archives backupapi.Archives
+	uploads  remoteapi.Uploads
+	disk     string
 	backups  *backupapi.Service
 	runner   *schedules.Runner
 	err      error
@@ -253,9 +259,24 @@ func (b *builder) prepare(ctx context.Context) (err error) {
 		return err
 	}
 
+	// S3 is available when its settings are given, for the backups that are on it whichever disk the new ones go to.
+	b.disk = backups.DiskWings
+	if cfg.Backups.Driver == "s3" {
+		b.disk = backups.DiskS3
+	}
+	if cfg.Backups.S3Configured() {
+		client, err := s3.New(cfg.Backups.S3Config(), s3.Options{})
+		if err != nil {
+			return fmt.Errorf("app: S3 for the backups: %w", err)
+		}
+		store := s3Backups{client: client, partSize: cfg.Backups.MaxPartSize, validity: time.Duration(cfg.Backups.PresignedMinutes) * time.Minute}
+		b.archives, b.uploads = store, store
+		b.log.Info("backups can be kept on S3", "s3", cfg.Backups.S3, "new_backups_on", b.disk)
+	}
+
 	// The service that starts backups is the same for the people who ask for one and for the schedules.
 	b.backups, err = backupapi.NewService(backupapi.ServiceDeps{
-		Store: b.st.BackupapiStore, Targets: b.st.ControlapiTargets, Daemon: backupapi.NewDaemon(b.factory), ThrottleLimit: BackupThrottleLimit, ThrottlePeriod: BackupThrottlePeriod,
+		Store: b.st.BackupapiStore, Targets: b.st.ControlapiTargets, Daemon: backupapi.NewDaemon(b.factory), Archives: b.archives, Disk: b.disk, ThrottleLimit: BackupThrottleLimit, ThrottlePeriod: BackupThrottlePeriod,
 		Logger: b.log, Now: b.in.Now, Random: b.in.Random,
 	})
 	if err != nil {
@@ -344,7 +365,7 @@ func (b *builder) routes(ctx context.Context) error {
 	}))
 	use("remoteapi", root)(remoteapi.New(remoteapi.Deps{
 		Servers: st.RemoteapiServers, Users: st.RemoteapiUsers, Activity: st.RemoteapiActivitySink, Events: st.RemoteapiEventLog, Outbox: st.RemoteapiOutbox,
-		OldNodes: oldNodes{nodes: st.AppnodesStore, daemon: b.daemon}, Backups: st.RemoteapiBackups, Failures: b.trackers[2], Site: b.site,
+		OldNodes: oldNodes{nodes: st.AppnodesStore, daemon: b.daemon}, Backups: st.RemoteapiBackups, Uploads: b.uploads, Failures: b.trackers[2], Site: b.site,
 		Notify: servers.NotifyConfig{Install: true, Reinstall: true}, Logger: log, Now: now,
 	}))
 
@@ -362,7 +383,7 @@ func (b *builder) routes(ctx context.Context) error {
 		Targets: st.ControlapiTargets, Daemon: files, Tokens: b.issuer, Activity: st.FileapiActivityLog, PullLimiter: lim.FilePull, Location: loc, Logger: log, Now: now,
 	}))
 	use("backupapi", client)(backupapi.New(backupapi.Deps{
-		Store: st.BackupapiStore, Targets: st.ControlapiTargets, Daemon: backupsDaemon, Tokens: b.issuer, Activity: st.BackupapiActivityLog, RestoreLimiter: lim.BackupRestore,
+		Store: st.BackupapiStore, Targets: st.ControlapiTargets, Daemon: backupsDaemon, Archives: b.archives, Disk: b.disk, Tokens: b.issuer, Activity: st.BackupapiActivityLog, RestoreLimiter: lim.BackupRestore,
 		ThrottleLimit: BackupThrottleLimit, ThrottlePeriod: BackupThrottlePeriod, Location: loc, Logger: log, Now: now, Random: random,
 	}))
 	use("databaseapi", client)(databaseapi.New(databaseapi.Deps{

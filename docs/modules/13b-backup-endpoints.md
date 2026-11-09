@@ -24,7 +24,7 @@ Entries: `server:backup.start|lock|unlock|delete|download|restore`; the node's r
 
 | Route | What it does |
 |---|---|
-| `GET …?size=` | the S3 upload addresses; only backups on the node's own disk exist here, so the answer is the reference's 400 "not an S3 compatible adapter" (C-060) |
+| `GET …?size=` | for a backup on S3 (and a panel with S3 settings): starts the multipart upload, keeps its id on the backup, answers `parts` (one signed address for each part) and `part_size`; for any other the reference's 400 "not an S3 compatible adapter" (C-060, `25-s3-backups.md`) |
 | `POST …` | the node reports how a backup ended: `backups.Complete` (checksum type and value from allow-lists, a failed one is unlocked with no checksum and size 0); a backup that is already completed cannot be reported on again (C-026); the entries are written in the same step |
 | `POST …/restore` | the node reports a restore ended; the server goes back to its normal state **only if it was restoring** |
 
@@ -36,8 +36,7 @@ UUID give the same refusal (C-057).
 with a `call` description (method, path, body, content type, output, raw output with a limit, long timeout).
 
 ## Different from the reference (`docs/compat.md`)
-- **C-060**: only the `wings` disk. A backup on S3 is shown in the list, but download, restore and delete refuse it with a clear 400;
-  creating one is not offered.
+- **C-060** (S3 backups): done, see `25-s3-backups.md`. A backup on S3 on a panel that has no S3 settings is still shown, but download, restore and delete refuse it with a clear 400.
 - C-026/C-027 (13a), C-058 (the throttle is counted for authorized calls only).
 
 ## Tests

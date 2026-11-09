@@ -203,6 +203,8 @@ type Deps struct {
 	Outbox   Outbox
 	OldNodes OldNodes
 	Backups  Backups
+	// Uploads is nil when the panel is not set up for S3 backups.
+	Uploads Uploads
 
 	// Failures counts the failed SFTP sign-ins.
 	Failures *middleware.Tracker
@@ -325,19 +327,50 @@ type NodeBackup struct {
 	ID       uint64
 	ServerID uint64
 	NodeID   uint64
-	UUID     string
-	Name     string
-	Disk     string
+	// ServerUUID is the server the backup is of; the archive of a backup on S3 is kept under it.
+	ServerUUID string
+	UUID       string
+	Name       string
+	Disk       string
+	// UploadID is the multipart upload a node was last given addresses for, empty when it was given none.
+	UploadID string
 	// Completed says the backup has a completion time, whatever came of it.
 	Completed  bool
 	Successful bool
 	Locked     bool
 }
 
+// Uploads is what the panel does for a node that keeps backups on S3: it starts the upload of an archive and signs the addresses the parts are sent to,
+// and it puts the parts together when the node says the backup is done. A panel that has no S3 settings has none.
+type Uploads interface {
+	// Begin starts the upload of the archive of a backup and says where the parts go: an address for each part of PartSize bytes, enough for size bytes.
+	Begin(ctx context.Context, serverUUID, backupUUID string, size int64) (Upload, error)
+	// Finish puts the parts together. parts is empty when the node did not say which they were, and the storage is asked. size is what the node says the archive
+	// weighs, 0 when it did not say.
+	Finish(ctx context.Context, serverUUID, backupUUID, uploadID string, parts []UploadedPart, size int64) error
+	// Abort throws away the parts of an upload that did not succeed. An upload that is not there is no error.
+	Abort(ctx context.Context, serverUUID, backupUUID, uploadID string) error
+}
+
+// Upload is what a node is given to send an archive in parts.
+type Upload struct {
+	ID       string
+	PartURLs []string
+	PartSize int64
+}
+
+// UploadedPart is a part the node sent, with the tag the storage answered it with.
+type UploadedPart struct {
+	Number int
+	ETag   string
+}
+
 // Backups is the part of the backup storage the node API needs. Every lookup is bound to the calling node.
 type Backups interface {
 	// OnNode finds a backup of a server that is on the node.
 	OnNode(ctx context.Context, nodeID uint64, uuid string) (NodeBackup, error)
+	// SetUploadID remembers the id of the upload a node was given addresses for, only while the backup has not ended, and says whether it did.
+	SetUploadID(ctx context.Context, backupID uint64, uploadID string) (bool, error)
 	// Complete stores the end of a backup, only if it has not ended yet, and says whether it did.
 	Complete(ctx context.Context, backupID uint64, r backups.Result, at time.Time) (bool, error)
 	// FinishRestore puts a server that was restoring a backup back to its normal state, and says whether it was restoring.

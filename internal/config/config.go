@@ -36,6 +36,7 @@ type Config struct {
 	Jobs    Jobs    `yaml:"jobs"`
 	Web     Web     `yaml:"web"`
 	DBHosts DBHosts `yaml:"db_hosts"`
+	Backups Backups `yaml:"backups"`
 }
 
 // App holds what identifies this panel to the outside.
@@ -101,6 +102,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 		Wings: Wings{TimeoutSeconds: 15, ConnectTimeoutSeconds: 5},
 	}
 	cfg.setRuntimeDefaults()
+	cfg.setBackupsDefaults()
 
 	if path == "" {
 		path = getenv("RAPTOR_CONFIG")
@@ -150,6 +152,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	override(&cfg.Log.Format, "RAPTOR_LOG_FORMAT")
 	override(&cfg.Web.AssetsDir, "RAPTOR_ASSETS_DIR")
 	override(&cfg.DBHosts.TLS, "RAPTOR_DB_HOSTS_TLS")
+	if err := applyBackupsEnv(&cfg.Backups, getenv); err != nil {
+		return err
+	}
 	if v := getenv("RAPTOR_WINGS_INSECURE_TLS"); v != "" {
 		insecure, err := strconv.ParseBool(v)
 		if err != nil {

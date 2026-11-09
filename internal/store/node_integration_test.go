@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -573,4 +575,66 @@ func TestRemoteBackups(t *testing.T) {
 		t.Errorf("status = %q", status)
 	}
 	_ = json.Valid
+}
+
+// The upload of a backup on S3: the id is kept while the backup has not ended and then no more, and the node's view of the backup says whose server it is.
+func TestRemoteBackupsKeepTheUploadOfAnS3Backup(t *testing.T) {
+	f := newFx(t)
+	r := f.r
+	f.server(1, f.node1, uuid1, "ada")
+	const id = "bbbbbbbb-0000-4000-8000-0000000000a1"
+	r.exec("INSERT INTO backups (server_id, uuid, name, ignored_files, disk) VALUES (1, ?, 'cloud', '', 's3')", id)
+	st := r.db.RemoteBackups()
+
+	b, err := st.OnNode(r.ctx, f.node1, id)
+	if err != nil || b.Disk != "s3" || b.UploadID != "" || b.ServerUUID != uuid1 {
+		t.Fatalf("before: %+v, %v", b, err)
+	}
+
+	if kept, err := st.SetUploadID(r.ctx, b.ID, "VXBsb2FkIElE.1_2-3~"); err != nil || !kept {
+		t.Fatalf("keep: %v %v", kept, err)
+	}
+	if got, _ := st.OnNode(r.ctx, f.node1, id); got.UploadID != "VXBsb2FkIElE.1_2-3~" {
+		t.Errorf("after: %+v", got)
+	}
+	// A node that asks again is given a new upload, and the new id replaces the old.
+	if kept, err := st.SetUploadID(r.ctx, b.ID, "second"); err != nil || !kept {
+		t.Fatalf("keep again: %v %v", kept, err)
+	}
+	if got, _ := st.OnNode(r.ctx, f.node1, id); got.UploadID != "second" {
+		t.Errorf("after the second: %+v", got)
+	}
+
+	// A backup that has ended keeps the upload it had: nothing can change it any more.
+	at := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	if done, err := st.Complete(r.ctx, b.ID, backups.Result{Successful: true, Checksum: "sha256:abc", Bytes: 5}, at); err != nil || !done {
+		t.Fatalf("complete: %v %v", done, err)
+	}
+	if kept, err := st.SetUploadID(r.ctx, b.ID, "third"); err != nil || kept {
+		t.Errorf("an id for a backup that ended: %v %v", kept, err)
+	}
+	if got, _ := st.OnNode(r.ctx, f.node1, id); got.UploadID != "second" {
+		t.Errorf("the id of a finished backup changed: %+v", got)
+	}
+
+	// Of many at once on a running backup, they all succeed and one id is left, whole.
+	r.exec("INSERT INTO backups (server_id, uuid, name, ignored_files, disk) VALUES (1, 'bbbbbbbb-0000-4000-8000-0000000000a2', 'cloud 2', '', 's3')")
+	var other uint64
+	r.sql.QueryRow("SELECT id FROM backups WHERE name = 'cloud 2'").Scan(&other)
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if kept, err := st.SetUploadID(r.ctx, other, fmt.Sprintf("upload-%d", i)); err != nil || !kept {
+				t.Errorf("keep %d: %v %v", i, kept, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	var left string
+	r.sql.QueryRow("SELECT upload_id FROM backups WHERE id = ?", other).Scan(&left)
+	if !strings.HasPrefix(left, "upload-") {
+		t.Errorf("the id left = %q", left)
+	}
 }

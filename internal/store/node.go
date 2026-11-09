@@ -600,9 +600,20 @@ func (s remoteBackups) OnNode(ctx context.Context, nodeID uint64, uuid string) (
 		return remoteapi.NodeBackup{}, fmt.Errorf("find backup %q: %w", uuid, err)
 	}
 	return remoteapi.NodeBackup{
-		ID: row.ID, ServerID: uint64(row.ServerID), NodeID: uint64(row.NodeID), UUID: row.Uuid, Name: row.Name, Disk: row.Disk,
+		ID: row.ID, ServerID: uint64(row.ServerID), NodeID: uint64(row.NodeID), ServerUUID: row.ServerUuid, UUID: row.Uuid, Name: row.Name, Disk: row.Disk, UploadID: row.UploadID.String,
 		Completed: row.CompletedAt.Valid, Successful: row.IsSuccessful, Locked: row.IsLocked != 0,
 	}, nil
+}
+
+// SetUploadID keeps the id of the upload in one statement that holds only while the backup has not ended.
+func (s remoteBackups) SetUploadID(ctx context.Context, backupID uint64, uploadID string) (bool, error) {
+	n, err := s.q.SetBackupUploadID(ctx, dbq.SetBackupUploadIDParams{
+		UploadID: sql.NullString{String: uploadID, Valid: uploadID != ""}, UpdatedAt: sql.NullTime{Time: s.now().UTC(), Valid: true}, ID: backupID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store the upload of backup %d: %w", backupID, err)
+	}
+	return n == 1, nil
 }
 
 // Complete ends a backup in one statement that holds only while it has not ended, so a second report changes nothing.

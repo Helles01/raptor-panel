@@ -51,8 +51,8 @@ func TestServiceReplacesTheOldestOnlyWhenAsked(t *testing.T) {
 	if err != nil || rec.Name != "Scheduled" {
 		t.Fatalf("with Replace: %+v %v", rec, err)
 	}
-	// The oldest backup that is not locked is the one on S3 (5): its row went in the transaction, its archive is deleted on the node
-	// before the new one is made, and the locked one (4) is left alone.
+	// The oldest backup that is not locked is the one on S3 (5): its row went in the transaction, and the locked one (4) is left alone. This panel has no
+	// S3 settings, so the archive is left where it is and the log says so; the node is not asked about a file it never had.
 	if len(r.store.pruned) != 1 || r.store.pruned[0] != 5 {
 		t.Errorf("pruned = %v", r.store.pruned)
 	}
@@ -60,8 +60,11 @@ func TestServiceReplacesTheOldestOnlyWhenAsked(t *testing.T) {
 	for _, c := range r.daemon.calls {
 		kinds = append(kinds, c.Kind)
 	}
-	if strings.Join(kinds, ",") != "delete,create" || r.daemon.calls[0].BackupUUID != uuidN(5) {
+	if strings.Join(kinds, ",") != "create" {
 		t.Errorf("node calls = %+v", r.daemon.calls)
+	}
+	if !strings.Contains(r.logs.String(), "left where it is") {
+		t.Errorf("the log does not say the archive was left: %s", r.logs.String())
 	}
 }
 
@@ -100,6 +103,8 @@ func TestServiceThrottlesEveryoneAlike(t *testing.T) {
 func TestServiceWhenTheNodeCannotBeTold(t *testing.T) {
 	r := newRig(t)
 	r.store.limit = ptr(int64(4))
+	// The oldest backup that is not locked is the one that was on S3 in the world of these tests; here it is one on the node, so that its archive is the node's to delete.
+	r.store.records[4].Disk = "wings"
 	r.daemon.createErr = &wings.Error{Status: 504, Message: "no reply", Unreachable: true}
 	_, err := r.service(t).Start(context.Background(), 100, StartParams{Name: "x", Replace: true})
 	var we *wings.Error
@@ -114,6 +119,7 @@ func TestServiceWhenTheNodeCannotBeTold(t *testing.T) {
 	// A node that cannot delete the replaced archive is only logged.
 	r = newRig(t)
 	r.store.limit = ptr(int64(4))
+	r.store.records[4].Disk = "wings"
 	r.daemon.deleteErr = &wings.Error{Status: 500, Message: "no", NodeStatus: 500}
 	if _, err := r.service(t).Start(context.Background(), 100, StartParams{Name: "x", Replace: true}); err != nil || !strings.Contains(r.logs.String(), "replaced backup was not deleted") {
 		t.Errorf("err %v, log %s", err, r.logs.String())

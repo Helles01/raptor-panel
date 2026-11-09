@@ -1,7 +1,7 @@
 // Package backupapi serves the routes with which a user manages the backups of their server: listing, starting, locking, downloading,
 // restoring and deleting them. The rules are in internal/backups; this package puts them in order and talks to the storage, the node and
-// the activity log through the interfaces below. Only backups kept on the node itself (the "wings" disk) are handled; the S3 disk is not
-// supported yet (C-060).
+// the activity log through the interfaces below. A backup is kept on the node itself (the "wings" disk) or, when the panel has S3 settings, in a bucket
+// (the "s3" disk): the node uploads it there through addresses the panel signs, and downloads, restores and deletes go to the bucket (C-060).
 package backupapi
 
 import (
@@ -105,6 +105,17 @@ type Daemon interface {
 	Delete(ctx context.Context, n wings.Node, serverUUID, backupUUID string) error
 }
 
+// Archives is where backups kept on S3 are: the panel signs addresses to fetch them from, and removes them. A panel without S3 settings has none.
+type Archives interface {
+	// DownloadURL is an address the archive can be fetched from without any other credential, good for the time given.
+	DownloadURL(serverUUID, backupUUID string, valid time.Duration) (string, error)
+	// Delete removes the archive. One that is not there is no error.
+	Delete(ctx context.Context, serverUUID, backupUUID string) error
+}
+
+// DownloadValidity is how long the address of a download or of a restore from S3 is good for (the reference: five minutes).
+const DownloadValidity = 5 * time.Minute
+
 // Tokens makes the token with which a browser downloads a backup from a node. *wings.Issuer is one.
 type Tokens interface {
 	BackupDownload(n wings.Node, who wings.Subject, serverUUID, backupUUID string) (string, error)
@@ -140,6 +151,10 @@ type Deps struct {
 	Daemon   Daemon
 	Tokens   Tokens
 	Activity ActivityLog
+	// Archives is nil when the panel has no S3 settings; a backup on S3 is then shown, but not downloaded, restored or deleted.
+	Archives Archives
+	// Disk is where new backups are kept: backups.DiskWings (the default) or backups.DiskS3, which needs Archives.
+	Disk string
 	// RestoreLimiter allows RestoreLimit restores in RestoreWindow for a server.
 	RestoreLimiter *middleware.Limiter
 	// ThrottleLimit backups may be started in ThrottlePeriod for a server (the reference: 2 in 600 seconds); a period of 0 turns it off.
@@ -164,6 +179,9 @@ func New(d Deps) (*Handlers, error) {
 	if d.Store == nil || d.Targets == nil || d.Daemon == nil || d.Tokens == nil || d.Activity == nil || d.RestoreLimiter == nil || d.Logger == nil {
 		return nil, errors.New("backupapi: the store, the target store, the daemon, the token maker, the activity log, the limiter and a logger are required")
 	}
+	if d.Disk == "" {
+		d.Disk = backups.DiskWings
+	}
 	if d.Location == nil {
 		d.Location = time.UTC
 	}
@@ -174,7 +192,7 @@ func New(d Deps) (*Handlers, error) {
 		d.Random = rand.Reader
 	}
 	svc, err := NewService(ServiceDeps{
-		Store: d.Store, Targets: d.Targets, Daemon: d.Daemon, ThrottleLimit: d.ThrottleLimit, ThrottlePeriod: d.ThrottlePeriod, Logger: d.Logger, Now: d.Now, Random: d.Random,
+		Store: d.Store, Targets: d.Targets, Daemon: d.Daemon, Archives: d.Archives, Disk: d.Disk, ThrottleLimit: d.ThrottleLimit, ThrottlePeriod: d.ThrottlePeriod, Logger: d.Logger, Now: d.Now, Random: d.Random,
 	})
 	if err != nil {
 		return nil, err

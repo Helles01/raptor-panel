@@ -216,6 +216,8 @@ type Querier interface {
 	ServersOfNode(ctx context.Context, arg ServersOfNodeParams) ([]ServersOfNodeRow, error)
 	SetAllocationNotes(ctx context.Context, arg SetAllocationNotesParams) error
 	SetBackupLocked(ctx context.Context, arg SetBackupLockedParams) error
+	// The id of the multipart upload a node was given addresses for; a backup that has ended keeps the one it had.
+	SetBackupUploadID(ctx context.Context, arg SetBackupUploadIDParams) (int64, error)
 	// The result of an installation is stored only if the server still has the status the report was made against.
 	SetInstallStatus(ctx context.Context, arg SetInstallStatusParams) (int64, error)
 	SetInstallStatusAndTime(ctx context.Context, arg SetInstallStatusAndTimeParams) (int64, error)

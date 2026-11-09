@@ -1,7 +1,7 @@
 # M13 groundwork – backup rules
 
 Status: **groundwork done** (2026-10-22): the rules of backups that need no database. The endpoints (`/servers/{server}/backups*`,
-`/api/remote/backups/*`), the calls to Wings and the S3 handling wait for the schema.
+`/api/remote/backups/*`), the calls to Wings and the S3 handling wait for the schema (all of it exists now; S3 is in `25-s3-backups.md`).
 
 The routes over storage interfaces are described in `13b-backup-endpoints.md`.
 

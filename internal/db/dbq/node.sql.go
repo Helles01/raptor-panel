@@ -64,7 +64,7 @@ func (q *Queries) AllocationsOfServers(ctx context.Context, ids []sql.NullInt32)
 }
 
 const backupOfNode = `-- name: BackupOfNode :one
-SELECT b.id, b.server_id, s.node_id, b.uuid, b.name, b.disk, b.completed_at, b.is_successful, b.is_locked
+SELECT b.id, b.server_id, s.node_id, s.uuid AS server_uuid, b.uuid, b.name, b.disk, b.upload_id, b.completed_at, b.is_successful, b.is_locked
 FROM backups b
 JOIN servers s ON s.id = b.server_id
 WHERE b.uuid = ? AND s.node_id = ? AND b.deleted_at IS NULL
@@ -79,9 +79,11 @@ type BackupOfNodeRow struct {
 	ID           uint64
 	ServerID     uint32
 	NodeID       uint32
+	ServerUuid   string
 	Uuid         string
 	Name         string
 	Disk         string
+	UploadID     sql.NullString
 	CompletedAt  sql.NullTime
 	IsSuccessful bool
 	IsLocked     uint8
@@ -94,9 +96,11 @@ func (q *Queries) BackupOfNode(ctx context.Context, arg BackupOfNodeParams) (Bac
 		&i.ID,
 		&i.ServerID,
 		&i.NodeID,
+		&i.ServerUuid,
 		&i.Uuid,
 		&i.Name,
 		&i.Disk,
+		&i.UploadID,
 		&i.CompletedAt,
 		&i.IsSuccessful,
 		&i.IsLocked,
@@ -786,6 +790,27 @@ func (q *Queries) ServersOfNode(ctx context.Context, arg ServersOfNodeParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const setBackupUploadID = `-- name: SetBackupUploadID :execrows
+UPDATE backups
+SET upload_id = ?, updated_at = ?
+WHERE id = ? AND completed_at IS NULL
+`
+
+type SetBackupUploadIDParams struct {
+	UploadID  sql.NullString
+	UpdatedAt sql.NullTime
+	ID        uint64
+}
+
+// The id of the multipart upload a node was given addresses for; a backup that has ended keeps the one it had.
+func (q *Queries) SetBackupUploadID(ctx context.Context, arg SetBackupUploadIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setBackupUploadID, arg.UploadID, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setInstallStatus = `-- name: SetInstallStatus :execrows

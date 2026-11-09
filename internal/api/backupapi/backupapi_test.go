@@ -251,7 +251,7 @@ type rig struct {
 	handlers *Handlers
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T, opts ...func(*Deps)) *rig {
 	t.Helper()
 	r := &rig{t: t, store: &store{nextID: 100}, daemon: &fakeDaemon{}, targets: &targets{}, activity: &activityLog{}, logs: &bytes.Buffer{}}
 	r.store.limit = ptr(int64(5))
@@ -284,11 +284,15 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(Deps{
+	deps := Deps{
 		Store: r.store, Targets: r.targets, Daemon: r.daemon, Tokens: issuer, Activity: r.activity, RestoreLimiter: limiter,
 		ThrottleLimit: 2, ThrottlePeriod: 600 * time.Second, Logger: slog.New(slog.NewTextHandler(r.logs, nil)),
 		Now: func() time.Time { return t0 },
-	})
+	}
+	for _, f := range opts {
+		f(&deps)
+	}
+	h, err := New(deps)
 	if err != nil {
 		t.Fatal(err)
 	}
