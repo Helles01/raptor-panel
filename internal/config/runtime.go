@@ -31,6 +31,9 @@ type Jobs struct {
 type Web struct {
 	// AssetsDir is the folder with the build of the frontend: manifest.json and the files it names.
 	AssetsDir string `yaml:"assets_dir"`
+	// Reload makes the panel look at the manifest of the build every few seconds and serve a new build without a restart. It is for development: a panel that
+	// is in use is restarted when it is updated, and does not want its scripts to change under it.
+	Reload bool `yaml:"reload"`
 }
 
 // DBHosts configures how the panel talks to the hosts it makes the databases of the servers on.

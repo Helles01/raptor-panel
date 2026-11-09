@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -95,8 +96,11 @@ type ShellOptions struct {
 // Shell renders the HTML page that starts the React frontend.
 type Shell struct {
 	tmpl    *template.Template
-	main    ManifestEntry
 	connect string
+
+	// mu guards main, which Reload replaces when a new build of the frontend is made while the panel runs.
+	mu   sync.RWMutex
+	main ManifestEntry
 }
 
 // The structure follows the reference's templates/wrapper.blade.php. The user and site data are given to the template
@@ -142,6 +146,24 @@ func NewShell(m Manifest, opts ShellOptions) (*Shell, error) {
 		return nil, fmt.Errorf("parse shell template: %w", err)
 	}
 	return &Shell{tmpl: tmpl, main: main, connect: strings.Join(sources, " ")}, nil
+}
+
+// Reload takes the main script of a new build, which is what the next page names. A manifest without one is refused and the shell is left as it was.
+func (s *Shell) Reload(m Manifest) error {
+	main, ok := m["main.js"]
+	if !ok {
+		return errors.New("the asset manifest has no main.js entry")
+	}
+	s.mu.Lock()
+	s.main = main
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Shell) mainEntry() ManifestEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.main
 }
 
 type shellData struct {
@@ -223,7 +245,7 @@ func (s *Shell) RenderWith(w http.ResponseWriter, page Page, user *User, site Si
 	h.Set("Cache-Control", "no-store")
 	h.Set("Content-Security-Policy", s.ContentSecurityPolicyWith(nonce, extra))
 
-	return s.tmpl.Execute(w, shellData{Site: site, User: user, Nonce: nonce, BodyClass: class, Modal: page == PageApp, Main: s.main})
+	return s.tmpl.Execute(w, shellData{Site: site, User: user, Nonce: nonce, BodyClass: class, Modal: page == PageApp, Main: s.mainEntry()})
 }
 
 // NodeSources are the origins a page needs to connect to a node: the address of its API for the requests the browser makes, and the same

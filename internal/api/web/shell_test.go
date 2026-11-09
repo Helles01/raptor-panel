@@ -467,3 +467,66 @@ func TestRenderWithPutsTheOriginsInTheHeaderOnly(t *testing.T) {
 		t.Errorf("err = %v, csp = %s", err, rec.Header().Get("Content-Security-Policy"))
 	}
 }
+
+func TestShellReloadServesTheNewMainScript(t *testing.T) {
+	first := Manifest{"main.js": {Src: "/assets/bundle.one.js", Integrity: "sha384-one"}}
+	s, err := NewShell(first, ShellOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := func() string {
+		rec := httptest.NewRecorder()
+		if err := s.Render(rec, PageAuth, nil, Site{Name: "Raptor"}); err != nil {
+			t.Fatal(err)
+		}
+		return rec.Body.String()
+	}
+	if got := page(); !strings.Contains(got, `src="/assets/bundle.one.js"`) || !strings.Contains(got, `integrity="sha384-one"`) {
+		t.Fatalf("before: %s", got)
+	}
+	if err := s.Reload(Manifest{"main.js": {Src: "/assets/bundle.two.js", Integrity: "sha384-two"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := page(); !strings.Contains(got, `src="/assets/bundle.two.js"`) || !strings.Contains(got, `integrity="sha384-two"`) || strings.Contains(got, "bundle.one") {
+		t.Errorf("after: %s", got)
+	}
+
+	// A manifest without a main script is refused and the shell keeps the build it had.
+	if err := s.Reload(Manifest{"font.woff": {Src: "/assets/font.woff2"}}); err == nil {
+		t.Error("a manifest without main.js was taken")
+	}
+	if got := page(); !strings.Contains(got, "bundle.two") {
+		t.Errorf("after a refusal: %s", got)
+	}
+}
+
+// Pages are drawn while a new build is taken: with the race detector this is where a missing lock shows.
+func TestShellReloadWhilePagesAreDrawn(t *testing.T) {
+	s, err := NewShell(Manifest{"main.js": {Src: "/assets/bundle.0.js", Integrity: "sha384-0"}}, ShellOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 1; i <= 200; i++ {
+			_ = s.Reload(Manifest{"main.js": {Src: fmt.Sprintf("/assets/bundle.%d.js", i), Integrity: fmt.Sprintf("sha384-%d", i)}})
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		rec := httptest.NewRecorder()
+		if err := s.Render(rec, PageAuth, nil, Site{Name: "Raptor"}); err != nil {
+			t.Fatal(err)
+		}
+		// The script and its integrity value are of the same build, never of two.
+		body := rec.Body.String()
+		var n, m int
+		if _, err := fmt.Sscanf(body[strings.Index(body, "bundle.")+len("bundle."):], "%d.js", &n); err != nil {
+			t.Fatalf("no script in the page: %v", err)
+		}
+		if _, err := fmt.Sscanf(body[strings.Index(body, `integrity="sha384-`)+len(`integrity="sha384-`):], "%d", &m); err != nil || n != m {
+			t.Fatalf("the script is of build %d and the integrity value of %d: %v", n, m, err)
+		}
+	}
+	<-done
+}

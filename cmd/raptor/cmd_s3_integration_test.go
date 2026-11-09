@@ -122,6 +122,7 @@ func TestPanelBackupsOnS3(t *testing.T) {
 		"RAPTOR_BACKUPS_DRIVER": "s3", "RAPTOR_BACKUPS_S3_ENDPOINT": s3srv.URL, "RAPTOR_BACKUPS_S3_REGION": "us-east-1", "RAPTOR_BACKUPS_S3_BUCKET": "bkt",
 		"RAPTOR_BACKUPS_S3_ACCESS_KEY": "AKIAE2EEXAMPLE", "RAPTOR_BACKUPS_S3_SECRET_KEY": "e2e-secret-key-value", "RAPTOR_BACKUPS_S3_PATH_STYLE": "true",
 		"RAPTOR_BACKUPS_MAX_PART_SIZE": "5242880", "RAPTOR_BACKUPS_PRESIGNED_MINUTES": "30",
+		"RAPTOR_FEATURES_HIDE_ADMIN_ACTIVITY": "true",
 	}
 
 	ctx := context.Background()
@@ -156,6 +157,7 @@ func TestPanelBackupsOnS3(t *testing.T) {
 		return out
 	}
 	do("", "user", "create", "--email", "admin@example.com", "--username", "admin", "--first-name", "Ada", "--last-name", "Admin", "--admin")
+	do("", "user", "create", "--email", "root2@example.com", "--username", "root2", "--first-name", "Rita", "--last-name", "Root", "--admin")
 	accountKey := strings.TrimSpace(do("", "apikey", "create", "--user", "admin", "--description", "e2e"))
 	do("", "location", "create", "--short", "eu.ams", "--long", "Amsterdam")
 	nodeFile := do("", "node", "create", "--name", "Node 1", "--location-id", "1", "--fqdn", "node1.example.com", "--memory", "4096", "--disk", "50000")
@@ -309,5 +311,25 @@ func TestPanelBackupsOnS3(t *testing.T) {
 	sqlDB.QueryRow("SELECT COUNT(*) FROM backups WHERE uuid = ? AND deleted_at IS NULL", backupUUID).Scan(&left)
 	if left != 0 {
 		t.Errorf("the backup is still there")
+	}
+
+	checkFeatureSwitches(t, sqlDB, owner, ownerAuth)
+}
+
+// A switch of the configuration reaches the handlers of the panel that runs: here the entries of administrators are left out of the log of a server, except those of the owner and the subusers, as in the reference.
+func checkFeatureSwitches(t *testing.T, sqlDB *sql.DB, owner *client, ownerAuth map[string]string) {
+	t.Helper()
+	// Another administrator, who does not own the server, did something on it.
+	res, err := sqlDB.Exec("INSERT INTO activity_logs (event, ip, description, actor_type, actor_id, properties, `timestamp`) VALUES ('server:power.start', '127.0.0.1', '', ?, 2, '{}', NOW())", `Pterodactyl\Models\User`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := res.LastInsertId()
+	if _, err := sqlDB.Exec("INSERT INTO activity_log_subjects (activity_log_id, subject_id, subject_type) VALUES (?, 1, ?)", id, `Pterodactyl\Models\Server`); err != nil {
+		t.Fatal(err)
+	}
+	status, _, out := owner.do("GET", "/api/client/servers/11111111/activity", nil, ownerAuth)
+	if status != 200 || strings.Contains(string(out), "server:power.start") || !strings.Contains(string(out), "server:backup.delete") {
+		t.Errorf("the log of the server = %d\n%s", status, out)
 	}
 }

@@ -61,18 +61,6 @@ const (
 	SessionLifetime = 7 * 24 * time.Hour
 )
 
-// The switches of the reference that the configuration has no place for yet, at the values the reference has them. Mail about a finished
-// installation goes out for the first installation and for a reinstallation; the activity log shows the entries of administrators; users may make
-// databases, on a host picked at random when none is linked to the node; a backup may be started twice in ten minutes; the editor opens files up to
-// 4 MiB (fileapi.DefaultMaxEditSize).
-const (
-	DatabasesEnabled     = true
-	DatabasesAllowRandom = true
-	HideAdminActivity    = false
-	BackupThrottleLimit  = 2
-	BackupThrottlePeriod = 600 * time.Second
-)
-
 // Input is what a panel is made of.
 type Input struct {
 	// Config is the validated configuration.
@@ -276,7 +264,7 @@ func (b *builder) prepare(ctx context.Context) (err error) {
 
 	// The service that starts backups is the same for the people who ask for one and for the schedules.
 	b.backups, err = backupapi.NewService(backupapi.ServiceDeps{
-		Store: b.st.BackupapiStore, Targets: b.st.ControlapiTargets, Daemon: backupapi.NewDaemon(b.factory), Archives: b.archives, Disk: b.disk, ThrottleLimit: BackupThrottleLimit, ThrottlePeriod: BackupThrottlePeriod,
+		Store: b.st.BackupapiStore, Targets: b.st.ControlapiTargets, Daemon: backupapi.NewDaemon(b.factory), Archives: b.archives, Disk: b.disk, ThrottleLimit: cfg.Features.BackupThrottleLimit, ThrottlePeriod: cfg.Features.BackupThrottlePeriod(),
 		Logger: b.log, Now: b.in.Now, Random: b.in.Random,
 	})
 	if err != nil {
@@ -366,11 +354,11 @@ func (b *builder) routes(ctx context.Context) error {
 	use("remoteapi", root)(remoteapi.New(remoteapi.Deps{
 		Servers: st.RemoteapiServers, Users: st.RemoteapiUsers, Activity: st.RemoteapiActivitySink, Events: st.RemoteapiEventLog, Outbox: st.RemoteapiOutbox,
 		OldNodes: oldNodes{nodes: st.AppnodesStore, daemon: b.daemon}, Backups: st.RemoteapiBackups, Uploads: b.uploads, Failures: b.trackers[2], Site: b.site,
-		Notify: servers.NotifyConfig{Install: true, Reinstall: true}, Logger: log, Now: now,
+		Notify: servers.NotifyConfig{Install: cfg.Features.NotifyInstall, Reinstall: cfg.Features.NotifyReinstall}, Logger: log, Now: now,
 	}))
 
 	use("clientapi", client)(clientapi.New(clientapi.Deps{
-		Accounts: st.ClientapiAccounts, Servers: st.ClientapiServers, Activity: st.ClientapiActivityLogs, Texts: b.texts, HideAdminActivity: HideAdminActivity, Location: loc, Logger: log,
+		Accounts: st.ClientapiAccounts, Servers: st.ClientapiServers, Activity: st.ClientapiActivityLogs, Texts: b.texts, HideAdminActivity: cfg.Features.HideAdminActivity, Location: loc, Logger: log,
 	}))
 	use("accountapi", client)(accountapi.New(accountapi.Deps{
 		Store: st.AccountapiStore, Sessions: b.sessions, Nodes: st.AccountapiNodes, Activity: st.AccountapiActivityLog, Failures: b.trackers[1], Issuer: b.site.Name, Location: loc, Logger: log,
@@ -384,10 +372,10 @@ func (b *builder) routes(ctx context.Context) error {
 	}))
 	use("backupapi", client)(backupapi.New(backupapi.Deps{
 		Store: st.BackupapiStore, Targets: st.ControlapiTargets, Daemon: backupsDaemon, Archives: b.archives, Disk: b.disk, Tokens: b.issuer, Activity: st.BackupapiActivityLog, RestoreLimiter: lim.BackupRestore,
-		ThrottleLimit: BackupThrottleLimit, ThrottlePeriod: BackupThrottlePeriod, Location: loc, Logger: log, Now: now, Random: random,
+		ThrottleLimit: cfg.Features.BackupThrottleLimit, ThrottlePeriod: cfg.Features.BackupThrottlePeriod(), Location: loc, Logger: log, Now: now, Random: random,
 	}))
 	use("databaseapi", client)(databaseapi.New(databaseapi.Deps{
-		Store: st.DatabaseapiStore, Hosts: b.hosts, Activity: st.DatabaseapiActivityLog, CreateLimiter: lim.DatabaseCreate, Enabled: DatabasesEnabled, AllowRandom: DatabasesAllowRandom,
+		Store: st.DatabaseapiStore, Hosts: b.hosts, Activity: st.DatabaseapiActivityLog, CreateLimiter: lim.DatabaseCreate, Enabled: cfg.Features.Databases, AllowRandom: cfg.Features.DatabasesRandomHost,
 		Logger: log, Random: random,
 	}))
 	use("allocapi", client)(allocapi.New(allocapi.Deps{
@@ -418,7 +406,7 @@ func (b *builder) routes(ctx context.Context) error {
 	use("appnodes", application)(appnodes.New(appnodes.Deps{Store: st.AppnodesStore, Daemon: nodesDaemon, BaseURL: cfg.App.URL, Logger: log, Random: random}))
 	use("appservers", application)(appservers.New(appservers.Deps{Store: st.AppserversStore, Targets: st.ControlapiTargets, Daemon: b.daemon, Hosts: b.hosts, Logger: log, Random: random}))
 	use("appserverdbs", application)(appserverdbs.New(appserverdbs.Deps{
-		Store: st.AppserverdbsStore, Hosts: b.hosts, Enabled: DatabasesEnabled, BaseURL: cfg.App.URL, Logger: log, Random: random,
+		Store: st.AppserverdbsStore, Hosts: b.hosts, Enabled: cfg.Features.Databases, BaseURL: cfg.App.URL, Logger: log, Random: random,
 	}))
 	return b.err
 }
@@ -469,7 +457,11 @@ func (b *builder) loops(_ context.Context) ([]Loop, error) {
 		maintenance.PruneSessions(st.MaintenanceSessionStore, SessionIdle, SessionLifetime),
 	}
 	if age := cfg.Jobs.BackupPruneAge(); age > 0 {
-		jobs = append(jobs, maintenance.PruneOrphanedBackups(st.MaintenanceBackupStore, age))
+		var aborter maintenance.UploadAborter // nil without S3 settings: an upload that is not there to be thrown away
+		if b.uploads != nil {
+			aborter = b.uploads
+		}
+		jobs = append(jobs, maintenance.PruneOrphanedBackups(st.MaintenanceBackupStore, age, aborter))
 	}
 	if keep := cfg.Jobs.ActivityKeep(); keep > 0 {
 		jobs = append(jobs, maintenance.PruneActivity(st.MaintenanceActivityStore, keep))
@@ -486,9 +478,13 @@ func (b *builder) loops(_ context.Context) ([]Loop, error) {
 	interval := cfg.Jobs.Schedules()
 	scheduler := WithSetup(Forever("schedules", func(ctx context.Context) { runner.Run(ctx, interval) }), runner.Recover)
 
-	return []Loop{
+	loops := []Loop{
 		Ticking("outbox", cfg.Jobs.Outbox(), queue.Run),
 		scheduler,
 		Forever("housekeeping", housekeeping.Run),
-	}, nil
+	}
+	if cfg.Web.Reload {
+		loops = append(loops, WatchFrontend(b.in.Frontend.Assets, b.in.Frontend.Shell, 2*time.Second, b.log))
+	}
+	return loops, nil
 }

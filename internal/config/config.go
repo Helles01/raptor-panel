@@ -27,16 +27,17 @@ import (
 
 // Config is the process configuration.
 type Config struct {
-	App     App     `yaml:"app"`
-	DB      DB      `yaml:"db"`
-	Secrets Secrets `yaml:"secrets"`
-	HTTP    HTTP    `yaml:"http"`
-	Wings   Wings   `yaml:"wings"`
-	Log     Log     `yaml:"log"`
-	Jobs    Jobs    `yaml:"jobs"`
-	Web     Web     `yaml:"web"`
-	DBHosts DBHosts `yaml:"db_hosts"`
-	Backups Backups `yaml:"backups"`
+	App      App      `yaml:"app"`
+	DB       DB       `yaml:"db"`
+	Secrets  Secrets  `yaml:"secrets"`
+	HTTP     HTTP     `yaml:"http"`
+	Wings    Wings    `yaml:"wings"`
+	Log      Log      `yaml:"log"`
+	Jobs     Jobs     `yaml:"jobs"`
+	Web      Web      `yaml:"web"`
+	DBHosts  DBHosts  `yaml:"db_hosts"`
+	Backups  Backups  `yaml:"backups"`
+	Features Features `yaml:"features"`
 }
 
 // App holds what identifies this panel to the outside.
@@ -103,6 +104,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	}
 	cfg.setRuntimeDefaults()
 	cfg.setBackupsDefaults()
+	cfg.setFeaturesDefaults()
 
 	if path == "" {
 		path = getenv("RAPTOR_CONFIG")
@@ -154,6 +156,16 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	override(&cfg.DBHosts.TLS, "RAPTOR_DB_HOSTS_TLS")
 	if err := applyBackupsEnv(&cfg.Backups, getenv); err != nil {
 		return err
+	}
+	if err := applyFeaturesEnv(&cfg.Features, getenv); err != nil {
+		return err
+	}
+	if v := getenv("RAPTOR_WEB_RELOAD"); v != "" {
+		reload, err := strconv.ParseBool(v)
+		if err != nil {
+			return errors.New("RAPTOR_WEB_RELOAD must be true or false")
+		}
+		cfg.Web.Reload = reload
 	}
 	if v := getenv("RAPTOR_WINGS_INSECURE_TLS"); v != "" {
 		insecure, err := strconv.ParseBool(v)
