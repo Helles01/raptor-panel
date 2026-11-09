@@ -12,6 +12,7 @@ import (
 
 	"github.com/Helles01/raptor-panel/internal/api/backupapi"
 	"github.com/Helles01/raptor-panel/internal/backups"
+	"github.com/Helles01/raptor-panel/internal/maintenance"
 )
 
 var errBackupLimit = errors.New("backup limit")
@@ -245,8 +246,8 @@ func TestMaintenanceBackups(t *testing.T) {
 	r.exec("UPDATE backups SET deleted_at = ? WHERE uuid = ?", old.Add(time.Minute), buuid(4))
 	r.exec("UPDATE backups SET is_locked = 1 WHERE uuid = ?", buuid(5))
 
-	n, err := st.FailOrphans(r.ctx, now.Add(-6*time.Hour), now)
-	if err != nil || n != 2 {
+	n, uploads, err := st.FailOrphans(r.ctx, now.Add(-6*time.Hour), now)
+	if err != nil || n != 2 || len(uploads) != 0 {
 		t.Fatalf("marked %d, %v", n, err)
 	}
 	state := func(n int) (ok bool, done bool, locked bool) {
@@ -268,7 +269,41 @@ func TestMaintenanceBackups(t *testing.T) {
 	if !end.Equal(now) {
 		t.Errorf("finished at %v, not %v", end, now)
 	}
-	if n, _ := st.FailOrphans(r.ctx, now.Add(-6*time.Hour), now); n != 0 {
+	if n, _, _ := st.FailOrphans(r.ctx, now.Add(-6*time.Hour), now); n != 0 {
 		t.Errorf("marked %d the second time", n)
+	}
+}
+
+// A backup on S3 that never finished has an upload open in the bucket: the job is told which, and only for the ones it marked.
+func TestMaintenanceBackupsListTheOpenUploadsOnS3(t *testing.T) {
+	f := clientFx(t)
+	r := f.r
+	st := r.db.MaintenanceBackups()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-7 * time.Hour)
+	ins := func(n int, disk string, created time.Time, upload any) {
+		t.Helper()
+		r.exec("INSERT INTO backups (server_id, uuid, name, ignored_files, disk, created_at, upload_id) VALUES (1, ?, 'b', '[]', ?, ?, ?)", buuid(n), disk, created, upload)
+	}
+	ins(1, "s3", old, "up-1")                   // on S3, old, with an upload: failed, listed
+	ins(2, "s3", old, nil)                      // on S3, old, never given addresses: failed, nothing to abort
+	ins(3, "s3", now.Add(-time.Minute), "up-3") // on S3, new: left alone, not listed
+	ins(4, "wings", old, "left-over")           // on the node, whatever its upload id: failed, not listed
+	ins(5, "s3", old, "up-5")                   // on S3, old, but done: left alone, not listed
+	ins(6, "s3", old, "up-6")                   // on S3, old, deleted: left alone, not listed
+	ins(7, "s3", old, "")                       // on S3, old, an empty id: failed, not listed
+	r.exec("UPDATE backups SET completed_at = ?, is_successful = 1 WHERE uuid = ?", old.Add(time.Minute), buuid(5))
+	r.exec("UPDATE backups SET deleted_at = ? WHERE uuid = ?", old.Add(time.Minute), buuid(6))
+
+	n, uploads, err := st.FailOrphans(r.ctx, now.Add(-6*time.Hour), now)
+	if err != nil || n != 4 {
+		t.Fatalf("marked %d, %v", n, err)
+	}
+	if len(uploads) != 1 || uploads[0] != (maintenance.Upload{ServerUUID: uuid1, BackupUUID: buuid(1), UploadID: "up-1"}) {
+		t.Errorf("uploads = %+v", uploads)
+	}
+	// The second time there is nothing to mark and nothing to abort.
+	if n, uploads, _ := st.FailOrphans(r.ctx, now.Add(-6*time.Hour), now); n != 0 || len(uploads) != 0 {
+		t.Errorf("the second time: %d, %+v", n, uploads)
 	}
 }

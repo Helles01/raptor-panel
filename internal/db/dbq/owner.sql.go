@@ -812,6 +812,51 @@ func (q *Queries) NonFailedBackups(ctx context.Context, serverID uint32) ([]NonF
 	return items, nil
 }
 
+const orphanBackupsToFail = `-- name: OrphanBackupsToFail :many
+SELECT b.uuid, b.disk, b.upload_id, s.uuid AS server_uuid
+FROM backups b
+JOIN servers s ON s.id = b.server_id
+WHERE b.completed_at IS NULL AND b.deleted_at IS NULL AND b.created_at < ?
+FOR UPDATE
+`
+
+type OrphanBackupsToFailRow struct {
+	Uuid       string
+	Disk       string
+	UploadID   sql.NullString
+	ServerUuid string
+}
+
+// The backups that are about to be marked as failed, with what is needed to throw away the upload of one kept on S3. Read with the rows locked, in the
+// same transaction as the update, so that the list is the list of the ones that were marked.
+func (q *Queries) OrphanBackupsToFail(ctx context.Context, createdAt sql.NullTime) ([]OrphanBackupsToFailRow, error) {
+	rows, err := q.db.QueryContext(ctx, orphanBackupsToFail, createdAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OrphanBackupsToFailRow
+	for rows.Next() {
+		var i OrphanBackupsToFailRow
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Disk,
+			&i.UploadID,
+			&i.ServerUuid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pickFreeAllocation = `-- name: PickFreeAllocation :one
 SELECT id
 FROM allocations

@@ -18,6 +18,8 @@ var errBoom = errors.New("the database is down: password=hunter2")
 type fakeStore struct {
 	n   int64
 	err error
+	// uploads are what FailOrphans says were open.
+	uploads []Upload
 
 	orphans         [2]time.Time
 	activityBefore  time.Time
@@ -26,9 +28,9 @@ type fakeStore struct {
 	sessionsCreated time.Time
 }
 
-func (s *fakeStore) FailOrphans(_ context.Context, createdBefore, at time.Time) (int64, error) {
+func (s *fakeStore) FailOrphans(_ context.Context, createdBefore, at time.Time) (int64, []Upload, error) {
 	s.orphans = [2]time.Time{createdBefore, at}
-	return s.n, s.err
+	return s.n, s.uploads, s.err
 }
 
 func (s *fakeStore) DeleteActivityBefore(_ context.Context, before time.Time) (int64, error) {
@@ -55,7 +57,7 @@ func TestTheJobsAskForTheRightCutoffs(t *testing.T) {
 		report string
 		check  func() bool
 	}{
-		{"backups", PruneOrphanedBackups(s, 6*time.Hour), 30 * time.Minute, "3 backups that never finished were marked as failed",
+		{"backups", PruneOrphanedBackups(s, 6*time.Hour, nil), 30 * time.Minute, "3 backups that never finished were marked as failed",
 			func() bool { return s.orphans == [2]time.Time{now.Add(-6 * time.Hour), now} }},
 		{"activity", PruneActivity(s, DefaultActivityKeep), 24 * time.Hour, "3 old activity log entries were deleted",
 			func() bool { return s.activityBefore.Equal(now.Add(-90 * 24 * time.Hour)) }},
@@ -285,4 +287,51 @@ func TestNewSchedulerChecksTheJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Run(context.Background())
+}
+
+type fakeAborter struct {
+	aborted []Upload
+	failFor map[string]bool
+}
+
+func (a *fakeAborter) Abort(_ context.Context, serverUUID, backupUUID, uploadID string) error {
+	a.aborted = append(a.aborted, Upload{serverUUID, backupUUID, uploadID})
+	if a.failFor[uploadID] {
+		return errBoom
+	}
+	return nil
+}
+
+// A backup on S3 that never finished has an upload open in the bucket: it is thrown away, and what could not be is said.
+func TestPruningOrphanedBackupsAbortsTheirUploads(t *testing.T) {
+	uploads := []Upload{{"srv1", "bkp1", "up1"}, {"srv2", "bkp2", "up2"}, {"srv3", "bkp3", "up3"}}
+	s := &fakeStore{n: 4, uploads: uploads}
+	a := &fakeAborter{}
+	report, err := PruneOrphanedBackups(s, 6*time.Hour, a).Run(context.Background(), now)
+	if err != nil || report != "4 backups that never finished were marked as failed; 3 open uploads on S3 were aborted" || len(a.aborted) != 3 || a.aborted[1] != uploads[1] {
+		t.Errorf("report %q, err %v, aborted %+v", report, err, a.aborted)
+	}
+
+	// One that cannot be aborted does not stop the others, and does not make the job fail: the backups are marked, the bucket's own rules clear the rest.
+	a = &fakeAborter{failFor: map[string]bool{"up2": true}}
+	report, err = PruneOrphanedBackups(s, 6*time.Hour, a).Run(context.Background(), now)
+	if err != nil || report != "4 backups that never finished were marked as failed; 2 open uploads on S3 were aborted and 1 could not be" || len(a.aborted) != 3 {
+		t.Errorf("report %q, err %v, aborted %+v", report, err, a.aborted)
+	}
+	if strings.Contains(report, "hunter2") {
+		t.Errorf("the report repeats an error: %s", report)
+	}
+
+	// Without S3 settings, or with nothing open, nothing is said about uploads; a store that fails aborts nothing.
+	if report, _ := PruneOrphanedBackups(s, 6*time.Hour, nil).Run(context.Background(), now); report != "4 backups that never finished were marked as failed" {
+		t.Errorf("no aborter: %q", report)
+	}
+	a = &fakeAborter{}
+	if report, _ := PruneOrphanedBackups(&fakeStore{n: 2}, 6*time.Hour, a).Run(context.Background(), now); report != "2 backups that never finished were marked as failed" || len(a.aborted) != 0 {
+		t.Errorf("nothing open: %q, aborted %+v", report, a.aborted)
+	}
+	a = &fakeAborter{}
+	if _, err := PruneOrphanedBackups(&fakeStore{err: errBoom, uploads: uploads}, 6*time.Hour, a).Run(context.Background(), now); !errors.Is(err, errBoom) || len(a.aborted) != 0 {
+		t.Errorf("a store that fails: %v, aborted %+v", err, a.aborted)
+	}
 }

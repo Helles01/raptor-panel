@@ -31,20 +31,46 @@ type Job struct {
 	Run func(ctx context.Context, now time.Time) (report string, err error)
 }
 
+// Upload is the multipart upload of a backup kept on S3 that was never finished.
+type Upload struct {
+	ServerUUID, BackupUUID, UploadID string
+}
+
 // BackupStore marks backups that never reported.
 type BackupStore interface {
 	// FailOrphans marks every backup that has no end time and was created before the given time as failed, finished now, and returns how
-	// many it marked. A backup that is done is left alone, and so is one that was deleted; the lock of an unfinished one is not touched.
-	FailOrphans(ctx context.Context, createdBefore, now time.Time) (int64, error)
+	// many it marked, and the open uploads of the ones kept on S3. A backup that is done is left alone, and so is one that was deleted; the lock of an
+	// unfinished one is not touched.
+	FailOrphans(ctx context.Context, createdBefore, now time.Time) (int64, []Upload, error)
+}
+
+// UploadAborter throws away an upload on S3. An upload that is not there is no error.
+type UploadAborter interface {
+	Abort(ctx context.Context, serverUUID, backupUUID, uploadID string) error
 }
 
 // PruneOrphanedBackups marks the backups that have been unfinished for longer than age as failed, so that they stop counting against the
 // limit of their server and are shown as failed. The node reports the end of every backup, so one that has not by now never will. Every
-// half hour, as in the reference.
-func PruneOrphanedBackups(s BackupStore, age time.Duration) Job {
+// half hour, as in the reference. A backup on S3 that never finished has an upload open in the bucket, whose parts stay there and are paid for until it
+// is aborted, which the reference leaves to the bucket's own rules; here it is thrown away when aborter is set, and what could not be is in the report.
+func PruneOrphanedBackups(s BackupStore, age time.Duration, aborter UploadAborter) Job {
 	return Job{Name: "orphaned backups", Every: 30 * time.Minute, Run: func(ctx context.Context, now time.Time) (string, error) {
-		n, err := s.FailOrphans(ctx, now.Add(-age), now)
-		return counted(n, "backups that never finished were marked as failed"), err
+		n, uploads, err := s.FailOrphans(ctx, now.Add(-age), now)
+		report := counted(n, "backups that never finished were marked as failed")
+		if err != nil || aborter == nil || len(uploads) == 0 {
+			return report, err
+		}
+		failed := 0
+		for _, u := range uploads {
+			if aerr := aborter.Abort(ctx, u.ServerUUID, u.BackupUUID, u.UploadID); aerr != nil {
+				failed++
+			}
+		}
+		report += fmt.Sprintf("; %d open uploads on S3 were aborted", len(uploads)-failed)
+		if failed > 0 {
+			report += fmt.Sprintf(" and %d could not be", failed)
+		}
+		return report, nil
 	}}
 }
 

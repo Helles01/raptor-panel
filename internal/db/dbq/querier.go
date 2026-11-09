@@ -29,6 +29,7 @@ type Querier interface {
 	BackupOfNode(ctx context.Context, arg BackupOfNodeParams) (BackupOfNodeRow, error)
 	BackupStartTimes(ctx context.Context, arg BackupStartTimesParams) ([]sql.NullTime, error)
 	BeginScheduleRun(ctx context.Context, arg BeginScheduleRunParams) (int64, error)
+	ClearAllTwoFactor(ctx context.Context) (int64, error)
 	ClearScheduleMarks(ctx context.Context) error
 	ClearScheduleProcessing(ctx context.Context, id uint32) error
 	ClearTaskMarks(ctx context.Context) error
@@ -50,6 +51,8 @@ type Querier interface {
 	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
 	CountServersOnNode(ctx context.Context, nodeID uint32) (int64, error)
 	CountSubuserEntries(ctx context.Context, arg CountSubuserEntriesParams) (int64, error)
+	// A user has a second factor when it is switched on, or a secret is kept for it in either place.
+	CountUsersWithTwoFactor(ctx context.Context) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
 	DatabaseHostChoices(ctx context.Context) ([]DatabaseHostChoicesRow, error)
 	DatabaseHostExists(ctx context.Context, id uint32) (int64, error)
@@ -58,6 +61,8 @@ type Querier interface {
 	DeleteAPIKeysOfType(ctx context.Context, keyType uint8) (int64, error)
 	DeleteActivityChunk(ctx context.Context, timestamp time.Time) (int64, error)
 	DeleteAllAPIKeys(ctx context.Context) (int64, error)
+	DeleteAllRecoveryTokens(ctx context.Context) error
+	DeleteAllSealedTotpSecrets(ctx context.Context) error
 	DeleteAllocation(ctx context.Context, id uint32) error
 	DeleteApplicationKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeleteApplicationKeysOfUser(ctx context.Context, userID uint32) error
@@ -142,6 +147,7 @@ type Querier interface {
 	ListDatabaseHosts(ctx context.Context) ([]ListDatabaseHostsRow, error)
 	ListLocations(ctx context.Context) ([]ListLocationsRow, error)
 	ListNodes(ctx context.Context) ([]ListNodesRow, error)
+	ListSealedSecrets(ctx context.Context, arg ListSealedSecretsParams) ([]ListSealedSecretsRow, error)
 	ListSecretHashes(ctx context.Context, arg ListSecretHashesParams) ([]ListSecretHashesRow, error)
 	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	LocationExists(ctx context.Context, id uint32) (int64, error)
@@ -185,6 +191,9 @@ type Querier interface {
 	NonFailedBackups(ctx context.Context, serverID uint32) ([]NonFailedBackupsRow, error)
 	// The transfer that is still running, if any.
 	OpenTransferOfServer(ctx context.Context, serverID uint32) (OpenTransferOfServerRow, error)
+	// The backups that are about to be marked as failed, with what is needed to throw away the upload of one kept on S3. Read with the rows locked, in the
+	// same transaction as the update, so that the list is the list of the ones that were marked.
+	OrphanBackupsToFail(ctx context.Context, createdAt sql.NullTime) ([]OrphanBackupsToFailRow, error)
 	PeopleByID(ctx context.Context, ids []uint32) ([]PeopleByIDRow, error)
 	// A free allocation on the server's address, at random as in the reference.
 	PickFreeAllocation(ctx context.Context, arg PickFreeAllocationParams) (uint32, error)

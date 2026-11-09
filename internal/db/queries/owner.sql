@@ -278,3 +278,12 @@ SELECT id, created_at, is_locked
 FROM backups
 WHERE server_id = ? AND deleted_at IS NULL AND (is_successful = 1 OR completed_at IS NULL)
 ORDER BY created_at, id;
+
+-- The backups that are about to be marked as failed, with what is needed to throw away the upload of one kept on S3. Read with the rows locked, in the
+-- same transaction as the update, so that the list is the list of the ones that were marked.
+-- name: OrphanBackupsToFail :many
+SELECT b.uuid, b.disk, b.upload_id, s.uuid AS server_uuid
+FROM backups b
+JOIN servers s ON s.id = b.server_id
+WHERE b.completed_at IS NULL AND b.deleted_at IS NULL AND b.created_at < ?
+FOR UPDATE;

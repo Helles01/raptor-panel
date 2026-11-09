@@ -200,14 +200,32 @@ func (s clientBackups) SetServerStatus(ctx context.Context, serverID uint64, fro
 	return settingsStore{s.DB}.SetStatus(ctx, serverID, from, to)
 }
 
-// FailOrphans marks the backups that are unfinished and older than the time as failed and finished, with one statement. A backup that is done, or deleted,
-// is left as it is, and the lock of an unfinished one is not touched.
-func (s housekeepingBackups) FailOrphans(ctx context.Context, createdBefore, now time.Time) (int64, error) {
-	n, err := s.q.FailOrphanBackups(ctx, dbq.FailOrphanBackupsParams{
-		CompletedAt: sql.NullTime{Time: now.UTC(), Valid: true}, UpdatedAt: sql.NullTime{Time: now.UTC(), Valid: true}, CreatedAt: sql.NullTime{Time: createdBefore.UTC(), Valid: true},
+// FailOrphans marks the backups that are unfinished and older than the time as failed and finished. A backup that is done, or deleted, is left as it is, and
+// the lock of an unfinished one is not touched. The ones kept on S3 that were given an upload are listed with it, read in the same transaction with the rows
+// locked, so that the list is the list of the ones that were marked.
+func (s housekeepingBackups) FailOrphans(ctx context.Context, createdBefore, now time.Time) (int64, []maintenance.Upload, error) {
+	var n int64
+	var uploads []maintenance.Upload
+	err := s.inTx(ctx, func(q *dbq.Queries) error {
+		rows, err := q.OrphanBackupsToFail(ctx, sql.NullTime{Time: createdBefore.UTC(), Valid: true})
+		if err != nil {
+			return fmt.Errorf("list the orphaned backups: %w", err)
+		}
+		for _, r := range rows {
+			if r.Disk == backups.DiskS3 && r.UploadID.Valid && r.UploadID.String != "" {
+				uploads = append(uploads, maintenance.Upload{ServerUUID: r.ServerUuid, BackupUUID: r.Uuid, UploadID: r.UploadID.String})
+			}
+		}
+		n, err = q.FailOrphanBackups(ctx, dbq.FailOrphanBackupsParams{
+			CompletedAt: sql.NullTime{Time: now.UTC(), Valid: true}, UpdatedAt: sql.NullTime{Time: now.UTC(), Valid: true}, CreatedAt: sql.NullTime{Time: createdBefore.UTC(), Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("mark the orphaned backups as failed: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("mark the orphaned backups as failed: %w", err)
+		return 0, nil, err
 	}
-	return n, nil
+	return n, uploads, nil
 }
