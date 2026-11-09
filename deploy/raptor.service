@@ -1,0 +1,52 @@
+# The unit of the panel: install it as /etc/systemd/system/raptor.service, then
+#     systemctl daemon-reload && systemctl enable --now raptor
+# It expects the binary in /opt/raptor/bin, the build of the frontend in /opt/raptor/web/public/assets, a user and group named raptor with no shell and no
+# login, and the environment in /etc/raptor/raptor.env (deploy/raptor.env.example).
+
+[Unit]
+Description=Raptor Panel
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raptor
+Group=raptor
+EnvironmentFile=/etc/raptor/raptor.env
+WorkingDirectory=/opt/raptor
+
+# Everything is looked at before the panel starts: a failure (not a warning) stops the start, with the reason in the journal.
+ExecStartPre=/opt/raptor/bin/raptor doctor
+ExecStart=/opt/raptor/bin/raptor serve
+Restart=on-failure
+RestartSec=5
+# The panel stops its loops and its server when it is asked to, in less time than this.
+TimeoutStopSec=45
+
+# The panel writes no file: it reads the frontend build and talks to the network. What it does not need it does not get.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

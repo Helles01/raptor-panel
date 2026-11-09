@@ -1,0 +1,38 @@
+# A reverse proxy for the panel with nginx. The certificate is the one the proxy has (for example from certbot); the panel itself listens on 127.0.0.1:8080
+# and is told the proxy is to be believed with RAPTOR_TRUSTED_PROXIES=127.0.0.1.
+#
+# The consoles and the files of the servers do not go through here: the browser talks to the nodes directly, and the nodes have their own addresses.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name panel.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name panel.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # The largest body the panel takes is a file of an egg or the list of parts of a backup; nothing is uploaded to the panel itself.
+    client_max_body_size 2m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # The panel believes this header only from the addresses of RAPTOR_TRUSTED_PROXIES; $remote_addr is what the proxy itself saw, so a header the client
+        # sent is not passed on.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}

@@ -1,0 +1,15 @@
+# A reverse proxy for the panel with Caddy, which gets and renews the certificate itself. The panel listens on 127.0.0.1:8080 and is told the proxy is to be
+# believed with RAPTOR_TRUSTED_PROXIES=127.0.0.1.
+#
+# The consoles and the files of the servers do not go through here: the browser talks to the nodes directly.
+
+panel.example.com {
+	request_body {
+		max_size 2MB
+	}
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy 127.0.0.1:8080 {
+		# What the client said about its own address is not passed on; the panel is given the address the proxy saw.
+		header_up X-Forwarded-For {remote_host}
+	}
+}
