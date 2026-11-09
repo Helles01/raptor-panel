@@ -23,6 +23,7 @@ panel serves exactly the routes of the reference (`TestBuiltPanelServesTheRefere
 | 8 | The eight criteria, each with a log in `docs/modules/milestone-1.md` | the browser (login with TOTP is a human step) | the ones that need no node can be done on this PC now (login, 2FA, server list from a row, schedules, subusers, settings); power, console, files, backups after 6 and 7 |
 
 ## The order on the test machine
+0. Before anything is started: `raptor doctor` (it looks at the configuration, the key, the frontend build, the database, the schema, the nodes and the mail, and says what is wrong), and, with S3 settings, `raptor backups check` (it tries the bucket the way a node and a browser would). `deploy/README.md` is how the machine is set up.
 1. `raptor keygen` for the secrets key (kept in the environment, never in a file that is committed); `raptor db check` on the database, then `raptor db migrate` (Raptor's own additive migration, `raptor_secrets`).
 2. `raptor user create --admin --email … --username … --first-name … --last-name … --password-stdin`.
 3. `raptor apikey create --user … --application --description … --access servers=rw --access nodes=rw …`; the key is on the standard output, once.

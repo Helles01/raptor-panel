@@ -14,9 +14,9 @@ it until Ctrl-C or SIGTERM. `storesOf` (`cmd/raptor/stores.go`) names the SQL im
 - The cookie is `Secure` (and `__Host-`-prefixed) when `app.url` is `https://`; with `http://` it is not, which is for a local test only.
 - Sessions end after 12 hours without use or a week after they were made (`SessionIdle`, `SessionLifetime`).
 
-## What has no place in the configuration yet
-`app.DatabasesEnabled`, `DatabasesAllowRandom`, `HideAdminActivity`, `BackupThrottleLimit`/`Period` (2 in 10 minutes), and the notices of finished installations (both on) are constants with the
-reference's values. The owners' own allocations (on/off and the port range, the settings `pterodactyl:client_features:allocations:*`) are read **at each request** (`allocapi.Policy`, three small reads), so
+## What is read once, and what at each request
+The switches of the reference (databases for users, the random host, hiding the activity of administrators, the throttle of backups, the notices of finished installations) are the `features` section of
+the configuration, at the reference's values (`26-cutover-and-operations.md`). The owners' own allocations (on/off and the port range, the settings `pterodactyl:client_features:allocations:*`) are read **at each request** (`allocapi.Policy`, three small reads), so
 `raptor settings set …` applies to a panel that is running; they are read once at start as well, so that a value stored wrongly stops the start rather than failing a request later. The name of the panel
 used in mail and as the issuer of two-factor codes is read **once at start**: a changed value needs a restart (it is shown by the page at once; only the mail and the issuer wait). The activity texts of the frontend (`en/activity.json`) tell which properties of an entry its text shows.
 

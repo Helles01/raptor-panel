@@ -7,7 +7,8 @@ Status: **done** (2026-11-03). Nothing here needs the schema. What still needs t
 New sections, with the defaults in brackets, all validated with allow-lists and unknown keys refused (the file is read with `KnownFields`):
 - `log.level` (`info`; debug, info, warn, error) and `log.format` (`text`; text, json), env `RAPTOR_LOG_LEVEL`, `RAPTOR_LOG_FORMAT`;
 - `jobs.outbox_seconds` (5), `jobs.schedule_seconds` (60, at least 5), `jobs.backup_prune_minutes` (360, 0 = off), `jobs.activity_keep_days` (90, 0 = off);
-- `web.assets_dir` (`web/public/assets`), env `RAPTOR_ASSETS_DIR`;
+- `web.assets_dir` (`web/public/assets`), env `RAPTOR_ASSETS_DIR`; `web.reload` (`false`), env `RAPTOR_WEB_RELOAD`: serve a new build of the frontend without a restart (development only);
+- `features.*` (the switches of the reference, `26-cutover-and-operations.md`), env `RAPTOR_FEATURES_DATABASES`, `_DATABASES_RANDOM_HOST`, `_HIDE_ADMIN_ACTIVITY`, `_BACKUP_THROTTLE_LIMIT`, `_BACKUP_THROTTLE_SECONDS`, `_NOTIFY_INSTALL`, `_NOTIFY_REINSTALL`;
 - `db_hosts.tls` (`false`; false, true, skip-verify, preferred), env `RAPTOR_DB_HOSTS_TLS`.
 - `backups.driver` (`wings`; wings, s3), `backups.presigned_minutes` (60), `backups.max_part_size` (5 GiB), and the bucket `backups.s3.*` (endpoint, region, bucket, access_key, secret_key, path_style, storage_class); env
   `RAPTOR_BACKUPS_DRIVER`, `RAPTOR_BACKUPS_PRESIGNED_MINUTES`, `RAPTOR_BACKUPS_MAX_PART_SIZE`, `RAPTOR_BACKUPS_S3_ENDPOINT|REGION|BUCKET|ACCESS_KEY|SECRET_KEY|PATH_STYLE|STORAGE_CLASS` (`25-s3-backups.md`).

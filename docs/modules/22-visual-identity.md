@@ -51,4 +51,4 @@ The tokens are `web/tailwind.config.js` (names unchanged: `neutral`/`gray` 50 li
 
 ## Working with it
 `raptor serve` reads the frontend's `manifest.json` (file names and integrity values) **once, at start**. After `yarn build:production` or `scripts/frontend-check.sh` (which builds again) the file names change, and a panel
-that is already running still names the old ones: the page loads and then shows nothing, because every script is a 404 (seen on 2026-11-03). Restart the panel after a build.
+that is already running still names the old ones: the page loads and then shows nothing, because every script is a 404 (seen on 2026-11-03). Restart the panel after a build. For development, `RAPTOR_WEB_RELOAD=true` (`web.reload`) makes the panel look at the manifest every two seconds and serve a new build at once, with no restart.

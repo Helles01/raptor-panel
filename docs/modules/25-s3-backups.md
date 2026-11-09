@@ -46,7 +46,7 @@ a backup on S3 is listed, and download, restore and delete refuse it with a 400.
 - **The backup's own disk decides**, not the panel's current default: the reference decides on the default adapter when a node reports, which would try to finish an upload that was never on S3 after the default is changed.
 - **The upload is finished before the end is stored**, not inside the database transaction: S3 can take minutes to put a big archive together, and a refusal leaves the backup unfinished, so the node reports again.
   A repeated report finds the upload gone (`NoSuchUpload`) and the object there with the size the node reported: that counts as finished.
-- Left alone, as in the reference: objects of deleted servers and of backups the prune job marked as failed (the bucket's lifecycle rules clear parts that were never finished).
+- Left alone, as in the reference: the objects of deleted servers. The open upload of a backup that never finished is **aborted** by the prune job (the reference leaves it to the bucket's lifecycle rules, and the parts are paid for until then), and `raptor backups check` tries the whole way through a bucket with an object of its own (`26-cutover-and-operations.md`).
 
 ## Tests
 - `internal/s3`: the four documentation signatures, escaping, validation of every setting, keys never printed, addresses of the four address styles, every request against a test server that checks the signature

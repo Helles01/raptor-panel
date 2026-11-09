@@ -50,7 +50,7 @@ cannot call the panel. Do it node by node, in a maintenance window (plan 13.3).
 | Step | What it needs |
 |---|---|
 | `raptor dbhost rotate-password <id>` | exists |
-| `raptor dbhost rotate-all` (the passwords of the server databases) | a decision: passwords written into game server configurations break (plan 13.3 says to decide before the cutover) |
-| `raptor user reset-2fa --all` with a "re-enrolment required" flag | a design: a table of Raptor's own, and a change of the sign-in so that the user enrols again after the password; `raptor user disable-2fa <user>` exists for one user |
-| `raptor migrate-secrets --finalize` | confirmation and a fresh backup first; the command of the closing step (13.2, step 4) |
+| `raptor dbhost rotate-all` (the passwords of the server databases) | done (`26-cutover-and-operations.md`); running it is still a decision, because passwords written into game server configurations break |
+| `raptor user reset-2fa --all` | done, without a table of its own: the existing setting `pterodactyl:auth:2fa_required` makes people set it up again (`26-cutover-and-operations.md`) |
+| `raptor migrate-secrets --finalize` | done (`26-cutover-and-operations.md`) |
 | `raptor audit` command (the check of the imported database, 13.5) | the owner's separate approval (the report itself is `internal/audit`) |
