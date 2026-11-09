@@ -57,6 +57,8 @@ func rootCommands() map[string]handler {
 		"version":         cmdVersion,
 		"keygen":          cmdKeygen,
 		"db":              cmdDB,
+		"backups":         cmdBackups,
+		"doctor":          cmdDoctor,
 		"migrate-secrets": cmdMigrateSecrets,
 		"serve":           cmdServe,
 		"user":            adminCommand("user"),

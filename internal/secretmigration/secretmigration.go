@@ -155,3 +155,35 @@ func sourceHash(legacyCiphertext string) string {
 	sum := sha256.Sum256([]byte(legacyCiphertext))
 	return hex.EncodeToString(sum[:])
 }
+
+// PendingColumn says how many of the values of an old column have no converted copy that is up to date.
+type PendingColumn struct {
+	Column  Column
+	Total   int
+	Pending int
+}
+
+// Pending counts, for every column, the old values that were never converted or were changed since. It decrypts nothing, so it needs no key of the old panel:
+// it only compares the hash of each old value with the hash its converted copy was made from. A column with nothing left in the old place, as after the
+// old values were neutralised, has nothing pending.
+func Pending(ctx context.Context, store Store) ([]PendingColumn, error) {
+	var out []PendingColumn
+	for _, col := range Columns() {
+		rows, err := store.LegacyValues(ctx, col)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", col, err)
+		}
+		hashes, err := store.SourceHashes(ctx, col)
+		if err != nil {
+			return nil, fmt.Errorf("read converted hashes of %s: %w", col, err)
+		}
+		p := PendingColumn{Column: col, Total: len(rows)}
+		for _, row := range rows {
+			if hashes[row.ID] != sourceHash(row.Value) {
+				p.Pending++
+			}
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}

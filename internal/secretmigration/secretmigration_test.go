@@ -22,10 +22,12 @@ func laravelEncrypt(t *testing.T, plaintext string) string {
 
 // fakeStore keeps the old columns read-only: the only way to change anything is WriteSecrets.
 type fakeStore struct {
-	legacy        map[string][]Row
-	converted     map[string]map[uint64]Write // column -> row -> write
-	writeCalls    int
-	failWriteWith error
+	legacy          map[string][]Row
+	converted       map[string]map[uint64]Write // column -> row -> write
+	writeCalls      int
+	failWriteWith   error
+	neutraliseCalls int
+	failNeutralise  error
 }
 
 func newFakeStore() *fakeStore {
@@ -264,4 +266,227 @@ func TestColumns(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Columns = %v, want %v", got, want)
 	}
+}
+
+func pendingOf(t *testing.T, f *fakeStore) map[string][2]int {
+	t.Helper()
+	got, err := Pending(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string][2]int{}
+	for _, p := range got {
+		out[p.Column.String()] = [2]int{p.Total, p.Pending}
+	}
+	return out
+}
+
+func TestPendingCountsTheValuesThatAreNotConvertedWithoutDecryptingAny(t *testing.T) {
+	f := seed(t)
+	got := pendingOf(t, f)
+	if got["nodes.daemon_token"] != [2]int{2, 2} || got["api_keys.token"] != [2]int{1, 1} || got["users.totp_secret"] != [2]int{1, 1} || got["database_hosts.password"] != [2]int{0, 0} {
+		t.Fatalf("before: %v", got)
+	}
+	if len(got) != len(Columns()) {
+		t.Errorf("%d columns of %d", len(got), len(Columns()))
+	}
+
+	legacy, box := newDeps(t)
+	if _, err := Run(context.Background(), f, legacy, box, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for col, p := range pendingOf(t, f) {
+		if p[1] != 0 {
+			t.Errorf("after the conversion %s has %d pending", col, p[1])
+		}
+	}
+
+	// A value that changed in the old place since it was converted is pending again, and only that one.
+	f.legacy["nodes.daemon_token"][1] = Row{ID: 2, Value: laravelEncrypt(t, "a new token")}
+	if got := pendingOf(t, f); got["nodes.daemon_token"] != [2]int{2, 1} {
+		t.Errorf("after a change: %v", got["nodes.daemon_token"])
+	}
+
+	// A column whose old values are gone (as after they were neutralised) has nothing pending, and a store that fails is an error, not a zero.
+	f.legacy["nodes.daemon_token"] = nil
+	if got := pendingOf(t, f); got["nodes.daemon_token"] != [2]int{0, 0} {
+		t.Errorf("with nothing in the old place: %v", got["nodes.daemon_token"])
+	}
+}
+
+type failingStore struct{ *fakeStore }
+
+func (failingStore) LegacyValues(context.Context, Column) ([]Row, error) {
+	return nil, errors.New("down")
+}
+
+func TestPendingFailsWhenTheStoreFails(t *testing.T) {
+	if _, err := Pending(context.Background(), failingStore{newFakeStore()}); err == nil {
+		t.Error("an error of the store was taken for nothing pending")
+	}
+}
+
+// --- Finalize
+
+func (f *fakeStore) SealedValues(_ context.Context, c Column) (map[uint64]string, error) {
+	out := map[uint64]string{}
+	for id, w := range f.converted[c.String()] {
+		out[id] = w.Sealed
+	}
+	return out, nil
+}
+
+func (f *fakeStore) Neutralise(_ context.Context, rows []NeutraliseRow) error {
+	f.neutraliseCalls++
+	if f.failNeutralise != nil {
+		return f.failNeutralise
+	}
+	for _, r := range rows {
+		kept := f.legacy[r.Column.String()][:0:0]
+		for _, row := range f.legacy[r.Column.String()] {
+			if row.ID != r.ID {
+				kept = append(kept, row)
+			}
+		}
+		f.legacy[r.Column.String()] = kept
+	}
+	return nil
+}
+
+func converted(t *testing.T) (*fakeStore, *secrets.Box) {
+	t.Helper()
+	f := seed(t)
+	legacy, box := newDeps(t)
+	if _, err := Run(context.Background(), f, legacy, box, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	return f, box
+}
+
+func oldValues(f *fakeStore) int {
+	n := 0
+	for _, rows := range f.legacy {
+		n += len(rows)
+	}
+	return n
+}
+
+func TestFinalizeMakesTheOldValuesEmptyWhenEveryOneIsConvertedAndReadable(t *testing.T) {
+	f, box := converted(t)
+	before := oldValues(f)
+	// A dry run says what would be done and does nothing.
+	rep, err := Finalize(context.Background(), f, box, FinalizeOptions{DryRun: true})
+	if err != nil || !rep.DryRun || len(rep.Problems) != 0 || oldValues(f) != before || f.neutraliseCalls != 0 {
+		t.Fatalf("dry run: %+v, %v, %d old values", rep, err, oldValues(f))
+	}
+	neutral := 0
+	for _, c := range rep.Columns {
+		neutral += c.Neutralised
+	}
+	if neutral != before {
+		t.Errorf("the dry run counts %d, there are %d", neutral, before)
+	}
+
+	rep, err = Finalize(context.Background(), f, box, FinalizeOptions{})
+	if err != nil || len(rep.Problems) != 0 || oldValues(f) != 0 || f.neutraliseCalls != 1 {
+		t.Fatalf("finalize: %+v, %v, %d old values left", rep, err, oldValues(f))
+	}
+	// The converted copies were not touched: what was sealed is still what the panel reads.
+	for col, rows := range f.converted {
+		for id, w := range rows {
+			if _, err := box.Open(w.Sealed, secrets.Context(w.Column.Table, id, w.Column.Column)); err != nil {
+				t.Errorf("%s id=%d cannot be opened after finalizing: %v", col, id, err)
+			}
+		}
+	}
+	// Run again there is nothing left, and nothing to do.
+	rep, err = Finalize(context.Background(), f, box, FinalizeOptions{})
+	if err != nil || f.neutraliseCalls != 1 {
+		t.Errorf("again: %+v, %v, calls %d", rep, err, f.neutraliseCalls)
+	}
+}
+
+func TestFinalizeRefusesWhileAnythingIsNotConverted(t *testing.T) {
+	f, box := converted(t)
+	// A value that was never converted: a new row in the old place.
+	f.legacy["api_keys.token"] = append(f.legacy["api_keys.token"], Row{ID: 99, Value: laravelEncrypt(t, "never converted")})
+	before := oldValues(f)
+	rep, err := Finalize(context.Background(), f, box, FinalizeOptions{})
+	if !errors.Is(err, ErrNotReady) || oldValues(f) != before || f.neutraliseCalls != 0 {
+		t.Fatalf("err = %v, old values %d -> %d", err, before, oldValues(f))
+	}
+	if len(rep.Problems) != 1 || rep.Problems[0].RowID != 99 || !strings.Contains(rep.Problems[0].Reason, "migrate-secrets") {
+		t.Errorf("problems = %+v", rep.Problems)
+	}
+	for _, c := range rep.Columns {
+		if c.Neutralised != 0 {
+			t.Errorf("%s says %d would be done although nothing is", c.Column, c.Neutralised)
+		}
+	}
+
+	// A value that changed in the old place after it was converted.
+	f, box = converted(t)
+	f.legacy["nodes.daemon_token"][0] = Row{ID: 1, Value: laravelEncrypt(t, "changed since")}
+	if _, err := Finalize(context.Background(), f, box, FinalizeOptions{}); !errors.Is(err, ErrNotReady) || f.neutraliseCalls != 0 {
+		t.Errorf("a changed value: %v", err)
+	}
+
+	// A converted copy that is missing.
+	f, box = converted(t)
+	delete(f.converted["users.totp_secret"], 3)
+	f.converted["users.totp_secret"][3] = Write{Column: f.converted["nodes.daemon_token"][1].Column, RowID: 3, Sealed: "", SourceHash: sourceHash(f.legacy["users.totp_secret"][0].Value)}
+	rep, err = Finalize(context.Background(), f, box, FinalizeOptions{})
+	if !errors.Is(err, ErrNotReady) || len(rep.Problems) != 1 || !strings.Contains(rep.Problems[0].Reason, "missing") {
+		t.Errorf("a missing copy: %v, %+v", err, rep.Problems)
+	}
+}
+
+// The key of the panel is not the one the copies were sealed with: that is the case in which the old values would be the only ones that can be read.
+func TestFinalizeDoesNotTrustACopyItCannotOpen(t *testing.T) {
+	f, _ := converted(t)
+	other, err := secrets.NewBox(bytes.Repeat([]byte{0x55}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := oldValues(f)
+	rep, err := Finalize(context.Background(), f, other, FinalizeOptions{})
+	if !errors.Is(err, ErrNotReady) || oldValues(f) != before || f.neutraliseCalls != 0 || len(rep.Problems) != before {
+		t.Fatalf("err = %v, old values %d -> %d, problems %d", err, before, oldValues(f), len(rep.Problems))
+	}
+	for _, p := range rep.Problems {
+		if !strings.Contains(p.Reason, "cannot be opened") {
+			t.Errorf("problem = %+v", p)
+		}
+	}
+
+	// A copy that was moved to another row does not open either: it is bound to its place.
+	f, box := converted(t)
+	w := f.converted["nodes.daemon_token"][1]
+	f.converted["nodes.daemon_token"][2] = Write{Column: w.Column, RowID: 2, Sealed: w.Sealed, SourceHash: f.converted["nodes.daemon_token"][2].SourceHash}
+	if _, err := Finalize(context.Background(), f, box, FinalizeOptions{}); !errors.Is(err, ErrNotReady) {
+		t.Errorf("a copy of another row: %v", err)
+	}
+}
+
+func TestFinalizeWhenTheStoreFails(t *testing.T) {
+	f, box := converted(t)
+	f.failNeutralise = errors.New("a row changed")
+	rep, err := Finalize(context.Background(), f, box, FinalizeOptions{})
+	if err == nil || errors.Is(err, ErrNotReady) || !strings.Contains(err.Error(), "make the old values empty") {
+		t.Fatalf("err = %v", err)
+	}
+	for _, c := range rep.Columns {
+		if c.Neutralised != 0 {
+			t.Errorf("%s says %d were done", c.Column, c.Neutralised)
+		}
+	}
+	if _, err := Finalize(context.Background(), failingFinal{f}, box, FinalizeOptions{}); err == nil {
+		t.Error("a store that cannot read was taken for one with nothing to do")
+	}
+}
+
+type failingFinal struct{ *fakeStore }
+
+func (failingFinal) SealedValues(context.Context, Column) (map[uint64]string, error) {
+	return nil, errors.New("down")
 }
