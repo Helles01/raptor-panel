@@ -32,6 +32,8 @@ type store struct {
 	settings     map[string]string
 	mailPassword string
 	mailCleared  int
+	twoFactor    int64
+	resets       int
 	taken        string
 	noLoc        bool
 	noNest       bool
@@ -115,6 +117,24 @@ func (s *store) SetSetting(_ context.Context, key, value string) error {
 	}
 	s.settings[key] = value
 	return s.fail
+}
+
+// twoFactor is the number of users who have a second factor, and resets counts the times they were all reset.
+func (s *store) TwoFactorUsers(context.Context) (int64, error) {
+	if s.fail != nil {
+		return 0, s.fail
+	}
+	return s.twoFactor, nil
+}
+
+func (s *store) DisableAllTwoFactor(context.Context) (int64, error) {
+	if s.fail != nil {
+		return 0, s.fail
+	}
+	n := s.twoFactor
+	s.twoFactor = 0
+	s.resets++
+	return n, nil
 }
 
 func (s *store) SetMailPassword(_ context.Context, password string) error {
@@ -441,5 +461,36 @@ func TestClearMailPassword(t *testing.T) {
 	st.fail = errBoom
 	if err := s.ClearMailPassword(context.Background()); !errors.Is(err, errBoom) {
 		t.Errorf("a store that fails: %v", err)
+	}
+}
+
+func TestResetAllTwoFactor(t *testing.T) {
+	s, st := newService(t)
+	st.twoFactor = 5
+
+	// Without the go-ahead nothing changes, and the answer says how many would lose theirs.
+	n, err := s.ResetAllTwoFactor(context.Background(), false)
+	var nc *TwoFactorNotConfirmedError
+	if !errors.As(err, &nc) || nc.Count != 5 || n != 0 || st.resets != 0 || st.twoFactor != 5 {
+		t.Fatalf("not confirmed: n = %d, err = %v, resets %d", n, err, st.resets)
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("the answer does not say how to go ahead: %v", err)
+	}
+
+	n, err = s.ResetAllTwoFactor(context.Background(), true)
+	if err != nil || n != 5 || st.resets != 1 || st.twoFactor != 0 {
+		t.Fatalf("confirmed: n = %d, err = %v, resets %d", n, err, st.resets)
+	}
+	// Run again there is nobody left, which is no error.
+	if n, err := s.ResetAllTwoFactor(context.Background(), true); err != nil || n != 0 {
+		t.Errorf("again: n = %d, err = %v", n, err)
+	}
+
+	st.fail = errBoom
+	for _, confirmed := range []bool{false, true} {
+		if _, err := s.ResetAllTwoFactor(context.Background(), confirmed); !errors.Is(err, errBoom) {
+			t.Errorf("a store that fails (confirmed %v): %v", confirmed, err)
+		}
 	}
 }

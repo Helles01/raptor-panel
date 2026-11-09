@@ -105,3 +105,68 @@ func (s *SecretStore) WriteSecrets(ctx context.Context, writes []secretmigration
 	}
 	return tx.Commit()
 }
+
+var _ secretmigration.FinalStore = (*SecretStore)(nil)
+
+// SealedValues implements secretmigration.FinalStore.
+func (s *SecretStore) SealedValues(ctx context.Context, c secretmigration.Column) (map[uint64]string, error) {
+	rows, err := s.q.ListSealedSecrets(ctx, dbq.ListSealedSecretsParams{TableName: c.Table, ColumnName: c.Column})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]string, len(rows))
+	for _, r := range rows {
+		out[r.RowID] = r.Ciphertext
+	}
+	return out, nil
+}
+
+// neutraliseQuery returns the fixed statement that makes the old value of a row empty, only while the row holds the value the hash was made of (SHA2 of the
+// stored text is the hex SHA-256 the conversion recorded). The column that may be NULL is made NULL; the others are made empty, which is what
+// LegacyValues leaves out.
+func neutraliseQuery(c secretmigration.Column) (query string, extra []any, ok bool) {
+	switch c.Table + "." + c.Column {
+	case "nodes.daemon_token":
+		return "UPDATE nodes SET daemon_token = '' WHERE id = ? AND SHA2(daemon_token, 256) = ?", nil, true
+	case "api_keys.token":
+		return "UPDATE api_keys SET token = '' WHERE id = ? AND SHA2(token, 256) = ?", nil, true
+	case "users.totp_secret":
+		return "UPDATE users SET totp_secret = NULL WHERE id = ? AND SHA2(totp_secret, 256) = ?", nil, true
+	case "database_hosts.password":
+		return "UPDATE database_hosts SET password = '' WHERE id = ? AND SHA2(password, 256) = ?", nil, true
+	case "databases.password":
+		return "UPDATE `databases` SET password = '' WHERE id = ? AND SHA2(password, 256) = ?", nil, true
+	case "settings.value":
+		if c.SettingsKey == "" {
+			return "", nil, false
+		}
+		return "UPDATE settings SET `value` = '' WHERE id = ? AND `key` = ? AND SHA2(`value`, 256) = ?", []any{c.SettingsKey}, true
+	}
+	return "", nil, false
+}
+
+// Neutralise implements secretmigration.FinalStore: every row in one transaction, and a row that no longer holds the converted value stops it all.
+func (s *SecretStore) Neutralise(ctx context.Context, rows []secretmigration.NeutraliseRow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	for _, r := range rows {
+		query, extra, ok := neutraliseQuery(r.Column)
+		if !ok {
+			return fmt.Errorf("no statement for %s", r.Column)
+		}
+		args := []any{r.ID}
+		args = append(args, extra...)
+		args = append(args, r.SourceHash)
+		res, err := tx.ExecContext(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("make %s id=%d empty: %w", r.Column, r.ID, err)
+		}
+		if n, err := res.RowsAffected(); err != nil || n != 1 {
+			return fmt.Errorf("%s id=%d changed while this ran: run migrate-secrets again and then this", r.Column, r.ID)
+		}
+	}
+	return tx.Commit()
+}

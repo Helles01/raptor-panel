@@ -66,6 +66,20 @@ func (q *Queries) APIKeyForRevoke(ctx context.Context, identifier sql.NullString
 	return i, err
 }
 
+const clearAllTwoFactor = `-- name: ClearAllTwoFactor :execrows
+UPDATE users
+SET use_totp = 0, totp_secret = NULL, totp_authenticated_at = NULL
+WHERE use_totp = 1 OR totp_secret IS NOT NULL OR totp_authenticated_at IS NOT NULL
+`
+
+func (q *Queries) ClearAllTwoFactor(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearAllTwoFactor)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearTwoFactor = `-- name: ClearTwoFactor :execrows
 UPDATE users
 SET use_totp = 0, totp_secret = NULL, totp_authenticated_at = NULL
@@ -114,6 +128,20 @@ WHERE owner_id = ?
 
 func (q *Queries) CountOwnedServers(ctx context.Context, ownerID uint32) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countOwnedServers, ownerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUsersWithTwoFactor = `-- name: CountUsersWithTwoFactor :one
+SELECT COUNT(*)
+FROM users
+WHERE use_totp = 1 OR (totp_secret IS NOT NULL AND totp_secret <> '') OR id IN (SELECT row_id FROM raptor_secrets WHERE table_name = 'users' AND column_name = 'totp_secret')
+`
+
+// A user has a second factor when it is switched on, or a secret is kept for it in either place.
+func (q *Queries) CountUsersWithTwoFactor(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsersWithTwoFactor)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -181,6 +209,25 @@ func (q *Queries) DeleteAllAPIKeys(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const deleteAllRecoveryTokens = `-- name: DeleteAllRecoveryTokens :exec
+DELETE FROM recovery_tokens
+`
+
+func (q *Queries) DeleteAllRecoveryTokens(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllRecoveryTokens)
+	return err
+}
+
+const deleteAllSealedTotpSecrets = `-- name: DeleteAllSealedTotpSecrets :exec
+DELETE FROM raptor_secrets
+WHERE table_name = 'users' AND column_name = 'totp_secret'
+`
+
+func (q *Queries) DeleteAllSealedTotpSecrets(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllSealedTotpSecrets)
+	return err
 }
 
 const deleteDatabaseHost = `-- name: DeleteDatabaseHost :execrows

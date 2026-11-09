@@ -42,7 +42,7 @@ func usagef(format string, a ...any) error { return UsageError{fmt.Sprintf(forma
 func Commands(s *admin.Service) map[string]map[string]Handler {
 	c := &commands{s: s}
 	return map[string]map[string]Handler{
-		"user":     {"create": c.userCreate, "delete": c.userDelete, "disable-2fa": c.userDisable2FA},
+		"user":     {"create": c.userCreate, "delete": c.userDelete, "disable-2fa": c.userDisable2FA, "reset-2fa": c.userReset2FA},
 		"apikey":   {"create": c.apikeyCreate},
 		"location": {"create": c.locationCreate},
 		"node":     {"create": c.nodeCreate},
@@ -375,5 +375,49 @@ func (c *commands) settingsMailPassword(ctx context.Context, e Env, args []strin
 		return err
 	}
 	fmt.Fprintln(e.Stderr, "Set the password of the mail server. Mail is sent with it from the next message on.")
+	return nil
+}
+
+// userReset2FA removes the second factor of everybody. It is for the cutover, when the secrets of the old panel count as known to others, and it asks for --yes
+// because it cannot be taken back: everybody who used a code has to set it up again.
+func (c *commands) userReset2FA(ctx context.Context, e Env, args []string) error {
+	fs := flags("user reset-2fa")
+	all := fs.Bool("all", false, "every user (for one user there is disable-2fa)")
+	yes := fs.Bool("yes", false, "really do it (without it nothing is changed, and the number of users who would be affected is shown)")
+	require := fs.String("require", "", "afterwards, who must set it up again: none, admins or everyone (the setting pterodactyl:auth:2fa_required); left as it is when not given")
+	if _, err := parse(fs, args, 0); err != nil {
+		return err
+	}
+	if !*all {
+		return usagef("user reset-2fa: --all is required (to take the second factor of one user, use user disable-2fa)")
+	}
+	level := ""
+	switch *require {
+	case "":
+	case "none":
+		level = "0"
+	case "admins":
+		level = "1"
+	case "everyone":
+		level = "2"
+	default:
+		return usagef("user reset-2fa: --require is none, admins or everyone")
+	}
+	if *require != "" && !*yes {
+		return usagef("user reset-2fa: --require goes with --yes")
+	}
+	n, err := c.s.ResetAllTwoFactor(ctx, *yes)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.Stderr, "Removed the second factor of %d user(s). They sign in with their password and set it up again.\n", n)
+	if level != "" {
+		if err := c.s.SetSetting(ctx, "pterodactyl:auth:2fa_required", level); err != nil {
+			return fmt.Errorf("the second factors are removed, but the requirement could not be set: %w", err)
+		}
+		fmt.Fprintf(e.Stderr, "Two-factor authentication is now required of: %s.\n", *require)
+	} else {
+		fmt.Fprintln(e.Stderr, "Whether they must is the setting pterodactyl:auth:2fa_required (raptor settings set, or run this again with --require).")
+	}
 	return nil
 }

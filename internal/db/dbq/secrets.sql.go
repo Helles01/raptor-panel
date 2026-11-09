@@ -29,6 +29,45 @@ func (q *Queries) GetSecret(ctx context.Context, arg GetSecretParams) (string, e
 	return ciphertext, err
 }
 
+const listSealedSecrets = `-- name: ListSealedSecrets :many
+SELECT row_id, ciphertext
+FROM raptor_secrets
+WHERE table_name = ? AND column_name = ?
+`
+
+type ListSealedSecretsParams struct {
+	TableName  string
+	ColumnName string
+}
+
+type ListSealedSecretsRow struct {
+	RowID      uint64
+	Ciphertext string
+}
+
+func (q *Queries) ListSealedSecrets(ctx context.Context, arg ListSealedSecretsParams) ([]ListSealedSecretsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSealedSecrets, arg.TableName, arg.ColumnName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSealedSecretsRow
+	for rows.Next() {
+		var i ListSealedSecretsRow
+		if err := rows.Scan(&i.RowID, &i.Ciphertext); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretHashes = `-- name: ListSecretHashes :many
 SELECT row_id, source_hash
 FROM raptor_secrets

@@ -12,3 +12,8 @@ ON DUPLICATE KEY UPDATE ciphertext = VALUES(ciphertext), source_hash = VALUES(so
 SELECT ciphertext
 FROM raptor_secrets
 WHERE table_name = ? AND row_id = ? AND column_name = ?;
+
+-- name: ListSealedSecrets :many
+SELECT row_id, ciphertext
+FROM raptor_secrets
+WHERE table_name = ? AND column_name = ?;

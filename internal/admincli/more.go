@@ -24,6 +24,7 @@ type Services struct {
 	Hosts     *admin.HostService
 	Directory *admin.Directory
 	Rotation  *admin.Rotation
+	Databases *admin.DatabaseRotation
 }
 
 // All returns the commands of every part that is there, by group and name. A group that two parts share ("apikey") has the commands of
@@ -51,6 +52,9 @@ func All(s Services) map[string]map[string]Handler {
 	}
 	if s.Rotation != nil {
 		add(rotationCommands(s.Rotation))
+	}
+	if s.Databases != nil {
+		add(databaseRotationCommands(s.Databases))
 	}
 	return out
 }
@@ -476,4 +480,53 @@ func (c *rotationCmds) nodeToken(ctx context.Context, e Env, args []string) erro
 	fmt.Fprintf(e.Stderr, "Gave node %d (uuid %s) a new token. The old one no longer works.\nIts configuration, token included, is on the standard output: save it as config.yml on the node and restart Wings. Until then the panel cannot reach the node; its servers keep running. It cannot be found out again.\n", made.ID, cell(made.UUID))
 	_, err = e.Stdout.Write(made.Config)
 	return err
+}
+
+func databaseRotationCommands(r *admin.DatabaseRotation) map[string]map[string]Handler {
+	c := &databaseRotationCmds{r: r}
+	return map[string]map[string]Handler{
+		"dbhost": {"rotate-all": c.rotateAll},
+	}
+}
+
+type databaseRotationCmds struct{ r *admin.DatabaseRotation }
+
+// rotateAll gives every database of every server a new password. It asks for --yes, because the passwords that game servers have in their configuration stop
+// working, and it can be limited to the databases of one host with --host, so that it can be done host by host.
+func (c *databaseRotationCmds) rotateAll(ctx context.Context, e Env, args []string) error {
+	fs := flags("dbhost rotate-all")
+	host := fs.Uint64("host", 0, "only the databases on this database host (an id; the default is every host)")
+	yes := fs.Bool("yes", false, "really do it (without it nothing is changed, and the number of databases is shown)")
+	if _, err := parse(fs, args, 0); err != nil {
+		return err
+	}
+	var only *uint64
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "host" {
+			only = host
+		}
+	})
+	if only != nil && *only == 0 {
+		return usagef("dbhost rotate-all: --host is the id of a database host, a number above 0")
+	}
+	report, err := c.r.RotateAll(ctx, only, *yes)
+	if err != nil {
+		var nc *admin.DatabasesNotConfirmedError
+		if errors.As(err, &nc) {
+			return err
+		}
+		return fmt.Errorf("%w (%d of %d databases were changed before it stopped)", err, report.Changed, report.Total)
+	}
+	fmt.Fprintf(e.Stderr, "Gave %d of %d database(s) a new password.\n", report.Changed, report.Total)
+	for _, f := range report.Failed {
+		what := "nothing was changed"
+		if f.Stage == "store" {
+			what = "the host has the new password and the panel does not: run the command again"
+		}
+		fmt.Fprintf(e.Stderr, "  database %d (%s, host %d): %s: %s\n", f.ID, cell(f.Name), f.HostID, what, cell(f.Cause))
+	}
+	if len(report.Failed) > 0 {
+		return fmt.Errorf("%d database(s) were not changed", len(report.Failed))
+	}
+	return nil
 }

@@ -254,12 +254,25 @@ func TestAllMergesTheParts(t *testing.T) {
 	rot, _ := admin.NewRotation(&rotStore{}, "https://panel.example.com", nil)
 
 	want := map[string][]string{
-		"user": {"create", "delete", "disable-2fa", "list"}, "apikey": {"create", "list", "revoke"}, "location": {"create", "list"},
+		"user": {"create", "delete", "disable-2fa", "list", "reset-2fa"}, "apikey": {"create", "list", "revoke"}, "location": {"create", "list"},
 		"node": {"create", "list", "rotate-token"}, "nest": {"create"}, "egg": {"import"}, "settings": {"get", "list", "set", "set-mail-password"},
 		"dbhost": {"create", "delete", "list", "rotate-password", "test", "update"},
 	}
+	dbRot, _ := admin.NewDatabaseRotation(&rotDBStore{}, &rotDBHosts{}, nil)
 	if got := names(All(Services{Admin: svc, Hosts: hs, Directory: dir, Rotation: rot})); !reflect.DeepEqual(got, want) {
 		t.Errorf("all = %v", got)
+	}
+	// The rotation of the passwords of the databases adds its command to the group the hosts have.
+	withDatabases := map[string][]string{}
+	for g, v := range want {
+		withDatabases[g] = v
+	}
+	withDatabases["dbhost"] = []string{"create", "delete", "list", "rotate-all", "rotate-password", "test", "update"}
+	if got := names(All(Services{Admin: svc, Hosts: hs, Directory: dir, Rotation: rot, Databases: dbRot})); !reflect.DeepEqual(got, withDatabases) {
+		t.Errorf("all with the databases = %v", got)
+	}
+	if got := names(All(Services{Databases: dbRot})); !reflect.DeepEqual(got, map[string][]string{"dbhost": {"rotate-all"}}) {
+		t.Errorf("the databases only gave %v", got)
 	}
 	if got := names(All(Services{})); len(got) != 0 {
 		t.Errorf("nothing gave %v", got)

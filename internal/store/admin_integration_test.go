@@ -459,3 +459,123 @@ func TestAdminDatabaseHosts(t *testing.T) {
 }
 
 func ptrU(v uint64) *uint64 { return &v }
+
+// Taking the second factor of everybody: the ones of the old panel (only in the old column), the ones Raptor sealed, the recovery tokens, and a secret that was left
+// behind; and nothing else that is sealed.
+func TestAdminResetAllTwoFactor(t *testing.T) {
+	r := newRig(t)
+	resetAdminTables(r)
+	r.truncate("users", "recovery_tokens")
+	svc := r.service()
+	ids := map[string]uint64{}
+	for _, name := range []string{"ada", "bob", "cat", "dan"} {
+		created, err := svc.CreateUser(r.ctx, admin.UserInput{Email: name + "@example.com", Username: name, FirstName: "A", LastName: "B"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[name] = created.ID
+	}
+	r.exec("UPDATE users SET use_totp = 1, totp_secret = 'eyJpdiI6Im9sZCJ9', totp_authenticated_at = NOW() WHERE id = ?", ids["ada"])
+	r.exec("UPDATE users SET use_totp = 1 WHERE id = ?", ids["bob"])
+	r.seal("users", ids["bob"], "totp_secret", "JBSWY3DPEHPK3PXP")
+	r.seal("users", ids["dan"], "totp_secret", "KRSXG5CTMVRXEZLU") // left behind: the switch is off
+	for _, name := range []string{"ada", "bob", "dan"} {
+		r.exec("INSERT INTO recovery_tokens (user_id, token, created_at) VALUES (?, 'hash', NOW())", ids[name])
+	}
+	// What is sealed and is not a second factor must come through.
+	r.seal("nodes", 1, "daemon_token", "a-node-token")
+	r.seal("api_keys", 1, "token_sha256", "a-key-hash")
+
+	count := func(q string, args ...any) (n int) { r.sql.QueryRow(q, args...).Scan(&n); return }
+
+	// Without the go-ahead: how many, and nothing changed.
+	var nc *admin.TwoFactorNotConfirmedError
+	if _, err := svc.ResetAllTwoFactor(r.ctx, false); !errors.As(err, &nc) || nc.Count != 3 {
+		t.Fatalf("not confirmed: %v", err)
+	}
+	if count("SELECT COUNT(*) FROM users WHERE use_totp = 1") != 2 || count("SELECT COUNT(*) FROM recovery_tokens") != 3 || count("SELECT COUNT(*) FROM raptor_secrets WHERE column_name = 'totp_secret'") != 2 {
+		t.Fatal("something was changed without the go-ahead")
+	}
+
+	n, err := svc.ResetAllTwoFactor(r.ctx, true)
+	if err != nil || n != 3 {
+		t.Fatalf("n = %d, err = %v", n, err)
+	}
+	if count("SELECT COUNT(*) FROM users WHERE use_totp = 1 OR totp_secret IS NOT NULL OR totp_authenticated_at IS NOT NULL") != 0 {
+		t.Error("a user still has a second factor in the users table")
+	}
+	if count("SELECT COUNT(*) FROM recovery_tokens") != 0 || count("SELECT COUNT(*) FROM raptor_secrets WHERE table_name = 'users' AND column_name = 'totp_secret'") != 0 {
+		t.Error("a recovery token or a sealed secret is left")
+	}
+	if count("SELECT COUNT(*) FROM raptor_secrets WHERE table_name = 'nodes'") != 1 || count("SELECT COUNT(*) FROM raptor_secrets WHERE table_name = 'api_keys'") != 1 {
+		t.Error("a secret that is not a second factor was removed")
+	}
+	if count("SELECT COUNT(*) FROM users") != 4 {
+		t.Error("a user was removed")
+	}
+
+	// Again, there is nobody to take it from.
+	if _, err := svc.ResetAllTwoFactor(r.ctx, false); !errors.As(err, &nc) || nc.Count != 0 {
+		t.Errorf("the count afterwards: %v", err)
+	}
+	if n, err := svc.ResetAllTwoFactor(r.ctx, true); err != nil || n != 0 {
+		t.Errorf("again: n = %d, err = %v", n, err)
+	}
+}
+
+// The databases of servers as the rotation of their passwords reads and writes them: all of them or one host's, and the new password sealed in the place the
+// panel reads it from, next to an old one that is still in the old encrypted column.
+func TestAdminDatabasesForTheRotationOfPasswords(t *testing.T) {
+	r := newRig(t)
+	resetAdminTables(r)
+	r.truncate("databases", "database_hosts", "raptor_secrets")
+	r.exec("INSERT INTO database_hosts (id, name, host, port, username, password) VALUES (1, 'a', 'db-a.example.com', 3306, 'panel', ''), (2, 'b', 'db-b.example.com', 3306, 'panel', '')")
+	r.exec("INSERT INTO `databases` (id, server_id, database_host_id, `database`, username, remote, password, max_connections) VALUES " +
+		"(1, 10, 1, 's10_world', 'u10_abc', '%', 'eyJpdiI6Im9sZCJ9', 0), (2, 10, 2, 's10_stats', 'u10_def', '10.0.0.%', 'eyJpdiI6Im9sZCJ9', 5), (3, 11, 1, 's11_data', 'u11_ghi', '%', '', NULL)")
+	st := r.db.AdminDatabases()
+
+	all, err := st.Databases(r.ctx, nil)
+	if err != nil || len(all) != 3 {
+		t.Fatalf("all = %+v, %v", all, err)
+	}
+	want := admin.ServerDatabase{ID: 2, ServerID: 10, HostID: 2, Name: "s10_stats", Username: "u10_def", Remote: "10.0.0.%", MaxConnections: 5}
+	if all[1] != want || all[2].MaxConnections != 0 || all[0].ID != 1 {
+		t.Errorf("the rows = %+v", all)
+	}
+	one := uint64(1)
+	if got, err := st.Databases(r.ctx, &one); err != nil || len(got) != 2 || got[0].ID != 1 || got[1].ID != 3 {
+		t.Errorf("host 1 = %+v, %v", got, err)
+	}
+	none := uint64(9)
+	if got, err := st.Databases(r.ctx, &none); err != nil || len(got) != 0 {
+		t.Errorf("host 9 = %+v, %v", got, err)
+	}
+
+	// The new password is what the panel reads back, and the old encrypted value is left as it was.
+	if err := st.SetPassword(r.ctx, 1, "Newpass1+x"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.db.ClientDatabases().Password(r.ctx, 1); err != nil || got != "Newpass1+x" {
+		t.Errorf("the password read back = %q, %v", got, err)
+	}
+	var old string
+	r.sql.QueryRow("SELECT password FROM `databases` WHERE id = 1").Scan(&old)
+	if old != "eyJpdiI6Im9sZCJ9" {
+		t.Errorf("the old column holds %q", old)
+	}
+	// A second time replaces the first, and a database that is not there is not found.
+	if err := st.SetPassword(r.ctx, 1, "Another2+y"); err != nil {
+		t.Fatal(err)
+	}
+	var sealed int
+	r.sql.QueryRow("SELECT COUNT(*) FROM raptor_secrets WHERE table_name = 'databases' AND row_id = 1").Scan(&sealed)
+	if got, _ := r.db.ClientDatabases().Password(r.ctx, 1); got != "Another2+y" || sealed != 1 {
+		t.Errorf("after the second: %q, %d sealed", got, sealed)
+	}
+	if err := st.SetPassword(r.ctx, 99, "Whatever1+"); !errors.Is(err, admin.ErrNotFound) {
+		t.Errorf("a database that is not there: %v", err)
+	}
+	if err := st.SetPassword(r.ctx, 1<<33, "Whatever1+"); !errors.Is(err, admin.ErrNotFound) {
+		t.Errorf("an id too big for the column: %v", err)
+	}
+}

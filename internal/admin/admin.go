@@ -80,6 +80,11 @@ type Store interface {
 	DeleteUser(ctx context.Context, id uint64, check func(ownedServers int64) error) error
 	// DisableTwoFactor removes the second factor of a user, with its recovery tokens.
 	DisableTwoFactor(ctx context.Context, id uint64) error
+	// TwoFactorUsers counts the users who have a second factor: switched on, or with a secret kept for them.
+	TwoFactorUsers(ctx context.Context) (int64, error)
+	// DisableAllTwoFactor removes the second factor of every user, with the secrets kept for them and every recovery token, in one transaction, and says how many
+	// users had one.
+	DisableAllTwoFactor(ctx context.Context) (int64, error)
 	// CreateKey stores a key. check is called with the number of keys the user has, inside the transaction in which they are counted.
 	CreateKey(ctx context.Context, k NewKey, check func(count int) error) error
 	CreateLocation(ctx context.Context, short, long string) (uint64, error)
@@ -349,4 +354,26 @@ func (s *Service) SetMailPassword(ctx context.Context, password string) error {
 // ClearMailPassword removes the password of the mail server, for a server that needs none.
 func (s *Service) ClearMailPassword(ctx context.Context) error {
 	return s.store.ClearMailPassword(ctx)
+}
+
+// TwoFactorNotConfirmedError is what ResetAllTwoFactor answers when it was not told to go ahead: nothing was changed, and Count is how many users would lose their
+// second factor.
+type TwoFactorNotConfirmedError struct{ Count int64 }
+
+func (e *TwoFactorNotConfirmedError) Error() string {
+	return fmt.Sprintf("%d user(s) would lose their second factor and nothing was changed: repeat the command with --yes to do it", e.Count)
+}
+
+// ResetAllTwoFactor removes the second factor of every user, because the secrets of the old panel were readable with its key and count as known to others
+// (plan 13.3). They sign in with their password and set it up again; whether they must is the setting of the panel (pterodactyl:auth:2fa_required). Unless
+// confirmed it changes nothing, and answers a *TwoFactorNotConfirmedError with the number of users who would be affected.
+func (s *Service) ResetAllTwoFactor(ctx context.Context, confirmed bool) (int64, error) {
+	if !confirmed {
+		n, err := s.store.TwoFactorUsers(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return 0, &TwoFactorNotConfirmedError{Count: n}
+	}
+	return s.store.DisableAllTwoFactor(ctx)
 }

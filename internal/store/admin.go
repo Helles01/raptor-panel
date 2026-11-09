@@ -12,6 +12,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 
 	"github.com/Helles01/raptor-panel/internal/admin"
+	"github.com/Helles01/raptor-panel/internal/api/appkit"
 	"github.com/Helles01/raptor-panel/internal/auth"
 	"github.com/Helles01/raptor-panel/internal/db/dbq"
 	"github.com/Helles01/raptor-panel/internal/dbhosts"
@@ -163,6 +164,40 @@ func (s adminStore) DisableTwoFactor(ctx context.Context, id uint64) error {
 		}
 		return nil
 	})
+}
+
+// TwoFactorUsers counts the users who have a second factor.
+func (s adminStore) TwoFactorUsers(ctx context.Context) (int64, error) {
+	n, err := s.q.CountUsersWithTwoFactor(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count the users with a second factor: %w", err)
+	}
+	return n, nil
+}
+
+// DisableAllTwoFactor removes every second factor in one transaction: the switch and the old secret of each user, the secrets kept for them, and every recovery
+// token. The count is taken in the same transaction, before anything changes.
+func (s adminStore) DisableAllTwoFactor(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.inTx(ctx, func(q *dbq.Queries) (err error) {
+		if n, err = q.CountUsersWithTwoFactor(ctx); err != nil {
+			return fmt.Errorf("count the users with a second factor: %w", err)
+		}
+		if _, err = q.ClearAllTwoFactor(ctx); err != nil {
+			return fmt.Errorf("switch two-factor authentication off: %w", err)
+		}
+		if err = q.DeleteAllRecoveryTokens(ctx); err != nil {
+			return fmt.Errorf("remove the recovery tokens: %w", err)
+		}
+		if err = q.DeleteAllSealedTotpSecrets(ctx); err != nil {
+			return fmt.Errorf("remove the sealed second factor secrets: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // seal stores a secret in raptor_secrets, bound to its place.
@@ -678,4 +713,44 @@ func (s adminRotation) ReplaceNodeToken(ctx context.Context, id uint64, creds no
 		}
 		return s.seal(ctx, q, "nodes", id, "daemon_token", creds.Token)
 	})
+}
+
+// AdminDatabases is the storage of the rotation of the passwords of server databases.
+func (d *DB) AdminDatabases() admin.DatabaseRotationStore { return adminDatabases{d} }
+
+type adminDatabases struct{ *DB }
+
+// Databases lists the databases of servers with what is needed to change their passwords, all of them or the ones on a host.
+func (s adminDatabases) Databases(ctx context.Context, hostID *uint64) ([]admin.ServerDatabase, error) {
+	query := "SELECT `id`, `server_id`, `database_host_id`, `database`, `username`, `remote`, `max_connections` FROM `databases`"
+	var args []any
+	if hostID != nil {
+		query += " WHERE `database_host_id` = ?"
+		args = append(args, *hostID)
+	}
+	rows, err := s.sql.QueryContext(ctx, query+" ORDER BY `id`", args...)
+	if err != nil {
+		return nil, fmt.Errorf("list the databases of the servers: %w", err)
+	}
+	defer rows.Close()
+	var out []admin.ServerDatabase
+	for rows.Next() {
+		var d admin.ServerDatabase
+		var maxConn sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.ServerID, &d.HostID, &d.Name, &d.Username, &d.Remote, &maxConn); err != nil {
+			return nil, fmt.Errorf("read a database: %w", err)
+		}
+		d.MaxConnections = int(maxConn.Int64)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SetPassword seals a new password for the database, with its row locked.
+func (s adminDatabases) SetPassword(ctx context.Context, id uint64, password string) error {
+	if err := (serverDatabases{s.DB}).setPassword(ctx, id, password); errors.Is(err, appkit.ErrNotFound) {
+		return admin.ErrNotFound
+	} else {
+		return err
+	}
 }

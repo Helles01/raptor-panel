@@ -32,6 +32,8 @@ type store struct {
 	// mailPassword is what SetMailPassword was given last; mailCleared counts ClearMailPassword.
 	mailPassword string
 	mailCleared  int
+	twoFactor    int64
+	resets       int
 }
 
 func (s *store) CreateUser(_ context.Context, u users.Record) (uint64, error) {
@@ -72,6 +74,15 @@ func (s *store) ImportEgg(_ context.Context, e admin.NewEgg) (uint64, error) {
 	s.eggs = append(s.eggs, e)
 	return 7, nil
 }
+func (s *store) TwoFactorUsers(context.Context) (int64, error) { return s.twoFactor, nil }
+
+func (s *store) DisableAllTwoFactor(context.Context) (int64, error) {
+	n := s.twoFactor
+	s.twoFactor = 0
+	s.resets++
+	return n, nil
+}
+
 func (s *store) SetMailPassword(_ context.Context, password string) error {
 	s.mailPassword = password
 	return nil
@@ -127,7 +138,7 @@ func TestTheCommandsThereAre(t *testing.T) {
 		sort.Strings(got[g])
 	}
 	want := map[string][]string{
-		"user": {"create", "delete", "disable-2fa"}, "apikey": {"create"}, "location": {"create"}, "node": {"create"}, "nest": {"create"}, "egg": {"import"}, "settings": {"list", "set", "set-mail-password"},
+		"user": {"create", "delete", "disable-2fa", "reset-2fa"}, "apikey": {"create"}, "location": {"create"}, "node": {"create"}, "nest": {"create"}, "egg": {"import"}, "settings": {"list", "set", "set-mail-password"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("commands = %v", got)
@@ -407,6 +418,59 @@ func TestSettingsSetMailPasswordRefusesWhatItCannotDo(t *testing.T) {
 		}
 		if strings.Contains(r.stdout.String()+r.stderr.String()+fmt.Sprint(err), "hunter2") {
 			t.Errorf("%s: the password is repeated", name)
+		}
+	}
+}
+
+func TestUserReset2FAWantsYes(t *testing.T) {
+	r := newRun(t)
+	r.st.twoFactor = 7
+	err := r.do("", "user", "reset-2fa", "--all")
+	var nc *admin.TwoFactorNotConfirmedError
+	if !errors.As(err, &nc) || nc.Count != 7 || isUsage(err) || r.st.resets != 0 || r.st.twoFactor != 7 || r.stdout.Len() != 0 {
+		t.Fatalf("err = %v, resets %d", err, r.st.resets)
+	}
+
+	if err := r.do("", "user", "reset-2fa", "--all", "--yes"); err != nil || r.st.resets != 1 || r.st.twoFactor != 0 {
+		t.Fatalf("err = %v, resets %d", err, r.st.resets)
+	}
+	if !strings.Contains(r.stderr.String(), "Removed the second factor of 7 user(s)") || !strings.Contains(r.stderr.String(), "pterodactyl:auth:2fa_required") || r.stdout.Len() != 0 {
+		t.Errorf("stderr = %q, stdout = %q", r.stderr.String(), r.stdout.String())
+	}
+	if _, set := r.st.settings["pterodactyl:auth:2fa_required"]; set {
+		t.Error("the requirement was changed without --require")
+	}
+}
+
+func TestUserReset2FARequire(t *testing.T) {
+	for require, want := range map[string]string{"none": "0", "admins": "1", "everyone": "2"} {
+		r := newRun(t)
+		r.st.twoFactor = 2
+		if err := r.do("", "user", "reset-2fa", "--all", "--yes", "--require", require); err != nil {
+			t.Fatalf("%s: %v", require, err)
+		}
+		if r.st.settings["pterodactyl:auth:2fa_required"] != want || !strings.Contains(r.stderr.String(), "required of: "+require) {
+			t.Errorf("%s: setting %q, stderr %q", require, r.st.settings["pterodactyl:auth:2fa_required"], r.stderr.String())
+		}
+	}
+}
+
+func TestUserReset2FARefusesWhatItCannotDo(t *testing.T) {
+	for name, args := range map[string][]string{
+		"without --all":                 {"--yes"},
+		"nothing at all":                {},
+		"a user instead of --all":       {"ann"},
+		"--require with a word unknown": {"--all", "--yes", "--require", "sometimes"},
+		"--require without --yes":       {"--all", "--require", "everyone"},
+		"a flag nobody knows":           {"--all", "--yes", "--force"},
+	} {
+		r := newRun(t)
+		r.st.twoFactor = 3
+		if err := r.do("", "user", "reset-2fa", args...); !isUsage(err) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+		if r.st.resets != 0 || r.st.twoFactor != 3 || len(r.st.settings) != 0 {
+			t.Errorf("%s: something was changed", name)
 		}
 	}
 }

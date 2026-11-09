@@ -171,3 +171,21 @@ DELETE FROM api_keys;
 -- name: DeleteAPIKeysOfType :execrows
 DELETE FROM api_keys
 WHERE key_type = ?;
+
+-- A user has a second factor when it is switched on, or a secret is kept for it in either place.
+-- name: CountUsersWithTwoFactor :one
+SELECT COUNT(*)
+FROM users
+WHERE use_totp = 1 OR (totp_secret IS NOT NULL AND totp_secret <> '') OR id IN (SELECT row_id FROM raptor_secrets WHERE table_name = 'users' AND column_name = 'totp_secret');
+
+-- name: ClearAllTwoFactor :execrows
+UPDATE users
+SET use_totp = 0, totp_secret = NULL, totp_authenticated_at = NULL
+WHERE use_totp = 1 OR totp_secret IS NOT NULL OR totp_authenticated_at IS NOT NULL;
+
+-- name: DeleteAllRecoveryTokens :exec
+DELETE FROM recovery_tokens;
+
+-- name: DeleteAllSealedTotpSecrets :exec
+DELETE FROM raptor_secrets
+WHERE table_name = 'users' AND column_name = 'totp_secret';
