@@ -110,7 +110,10 @@ func WatchFrontend(fsys fs.FS, shell *web.Shell, interval time.Duration, log *sl
 			}
 			return info.ModTime(), info.Size()
 		}
-		loadedAt, loadedSize := stamp()
+		// Nothing is assumed about the build the shell was made from: a build made between the start and this loop would otherwise be taken as the one that is
+		// served, its files would be gone and the pages would name scripts that are not there. The first look therefore always checks, and says nothing when the
+		// build is the one the shell already serves.
+		loadedAt, loadedSize := time.Time{}, int64(-2)
 		var complainedAt time.Time
 		var complainedSize int64
 		ticker := time.NewTicker(interval)
@@ -126,7 +129,8 @@ func WatchFrontend(fsys fs.FS, shell *web.Shell, interval time.Duration, log *sl
 				continue
 			}
 			m, err := checkedManifest(fsys)
-			if err == nil {
+			changed := err == nil && m["main.js"] != shell.Main()
+			if changed {
 				err = shell.Reload(m)
 			}
 			if err != nil {
@@ -137,7 +141,9 @@ func WatchFrontend(fsys fs.FS, shell *web.Shell, interval time.Duration, log *sl
 				continue
 			}
 			loadedAt, loadedSize = at, size
-			log.Info("a new build of the frontend is served")
+			if changed {
+				log.Info("a new build of the frontend is served")
+			}
 		}
 	})
 }

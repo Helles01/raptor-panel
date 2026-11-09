@@ -160,6 +160,9 @@ func (s *Shell) Reload(m Manifest) error {
 	return nil
 }
 
+// Main is the main script the pages name now.
+func (s *Shell) Main() ManifestEntry { return s.mainEntry() }
+
 func (s *Shell) mainEntry() ManifestEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -30,10 +30,14 @@ ORDER BY RAND()
 LIMIT 1
 FOR UPDATE;
 
+-- A locking read, on purpose: it reads what is committed now and not the snapshot of the transaction, which was taken at its first plain read (the count of the
+-- server's allocations), before the request that went first had made its port. Without the lock the ports are stale, two requests choose the same one and the
+-- second fails on the unique key; MariaDB 11.8 with innodb_snapshot_isolation hides it by failing the lock before, MariaDB 10.x and MySQL 8 do not.
 -- name: PortsOfNodeAddress :many
 SELECT port
 FROM allocations
-WHERE node_id = ? AND ip = ?;
+WHERE node_id = ? AND ip = ?
+FOR UPDATE;
 
 -- name: InsertAllocationFor :execlastid
 INSERT INTO allocations (node_id, ip, port, server_id, created_at, updated_at)

@@ -9,7 +9,7 @@ Nothing here was run against a real old panel yet: the commands were written and
 - **Carried over:** the content of the database, as one dump. Nothing else: no `.env`, no `storage/`, no PHP files, no certificates, no keys, no scripts from the old machine.
 - **New:** the machine (or a clean installation), the MariaDB instance with its own user and password, the `RAPTOR_SECRET_KEY`, the TLS certificate, the service account.
 - **The nodes stay where they are.** Their `config.yml` is replaced (new token, new panel address) and Wings is restarted; their servers keep running while it is done.
-- **Everybody signs in again.** API keys are revoked, second factors are reset, node tokens are replaced; the passwords of users stay (they are bcrypt hashes, which Raptor reads as they are).
+- **Everybody signs in again.** API keys are revoked, second factors are reset, node tokens are replaced. The passwords of users stay by default (they are bcrypt hashes, which Raptor reads as they are); if the old machine counts as compromised they are taken as well (`raptor user reset-passwords --all`, step 7).
 
 ## What you need
 - A new machine with the versions pinned in `versions.env` (`docs/plan.md` chapter 11), set up as in `deploy/README.md`: the user, the directories, the binary, the frontend build, `/etc/raptor/raptor.env`, the service unit.
@@ -52,7 +52,13 @@ raptor db migrate    # Raptor's own tables (additive; the old tables are not cha
 If `db check` lists migrations that are missing, the old panel was another version than the one Raptor is written against: stop here and find out which, with the rehearsal's notes.
 
 ## Step 5 — look at what came over
-The imported database is **untrusted data**. Read the answers of `docs/cutover-review.sql` (read-only):
+The imported database is **untrusted data**. First let Raptor look at it:
+```bash
+raptor audit            # --json for a program; it only reads, and exits with 1 when there is an error
+```
+It checks every kind of row against what Raptor can use: a password that is no bcrypt hash, a second factor that is on with no secret, an egg rule Raptor does not know, a cron expression nobody can run, a task of an action that does not exist, an API key whose list of addresses cannot be read (such a key works from nowhere), an address that is none, a subuser with permissions that do not exist, settings Raptor would refuse to save again. An **error** is a row that something stops working for (somebody cannot sign in, a schedule never runs): deal with it before the start. A **warning** is a row Raptor still reads but would refuse to write again; it works until somebody changes it. Names in the report are the database's own text, with control characters replaced, so a report can be read in a terminal. The report does not judge whether data is *safe*, only whether it is *usable*: that is what the next list is for.
+
+Then read the answers of `docs/cutover-review.sql` (read-only):
 ```bash
 mysql -u raptor -p raptor < docs/cutover-review.sql | less
 ```
@@ -97,8 +103,16 @@ raptor dbhost rotate-password <id>
 # 5. the password of the mail server in the panel, and the one at the mail provider.
 printf '%s\n' "$NEW_MAIL_PASSWORD" | raptor settings set-mail-password --password-stdin
 ```
+```bash
+# 6. the passwords of the users (a decision, see below). Without --yes it only says how many users it would affect.
+raptor user reset-passwords --all
+raptor user reset-passwords --all --yes
+printf '%s\n' "$NEW_ADMIN_PASSWORD" | raptor user set-password <your admin> --password-stdin
+```
+**The passwords of the users** (`raptor user reset-passwords --all`) are a decision of their own: the hashes of the old panel came over with its database, and if the old machine counts as compromised they count as known. Every account then has a password that matches nothing, every session ends, every reset link asked for before stops working, and people choose a new password with the "forgot password" page, which **needs the mail to work**: set it first (`raptor doctor` says whether it is set up; the first real test is in step 8, with your own address). `user set-password` is the way back in for an administrator, with a password from the standard input (or one it makes and shows once); give one to yourself right after, sign in with it in step 8, and try the "forgot password" page with your own address before anybody else is told. Passwords that people use elsewhere are exactly why this is the right thing to do, and it costs every user one mail.
+
 **The passwords of the databases of servers** (`raptor dbhost rotate-all`) are a decision of their own: a new password on the host breaks every game server that has the old one written in its configuration. It is the right
-thing to do if the passwords are assumed known, and it needs the owners to be told first. Look at what it would do (`raptor dbhost rotate-all`, no `--yes`), and do it host by host (`--host <id> --yes`) if you want to.
+thing to do if the passwords are assumed known, and it needs the owners to be told first. Look at what it would do (`raptor dbhost rotate-all`, no `--yes`), and do it host by host (`--host <id> --yes`) if you want to. If the report names a database whose password was changed on the host but not kept by the panel, run `--database <id> --yes` for that one; do not run the whole command again.
 
 Rotated at the provider, by hand: the mail password, reCAPTCHA keys, S3 credentials, anything else that was in the old `.env`.
 
@@ -141,11 +155,12 @@ There is no routine rollback, because the old machine counts as compromised. In 
 | They are signed out | everybody | sign in again |
 | Their API keys do not work | whoever has one | make a new one (Account, API credentials) |
 | Their second factor is gone | whoever used one | set it up again at the first sign-in, if it is required |
+| Their password is gone | everybody, if `reset-passwords` was done | use the "forgot password" page and the mail it sends |
 | The passwords of their databases changed | server owners, if `rotate-all` was done | read the new password in the panel and put it in the game server's configuration |
 | Servers do not respond for a moment | nobody, if the nodes are done one at a time | nothing: the servers keep running |
 
 ## What does not exist yet
 These are known gaps, not forgotten ones:
-- **`raptor audit`** (the check of the imported database as a command, `internal/audit`) is written, but the command waits for your separate approval (`docs/plan.md` 13.5). Until then `docs/cutover-review.sql` is the same list as questions.
-- **A forced change of passwords:** the password hashes of the users come over as they are. If the old machine was compromised they should be changed; there is no command that makes everybody choose a new one (a reset link can be asked for by each user on the sign-in page).
+- **A forced change of the password at the next sign-in** (a flag, a new table, a page of the frontend) was not built. `user reset-passwords --all` and the "forgot password" page do the same with what the reference has; the difference is that a user finds out when they try to sign in, not from a mail the panel sends by itself. **A mail to everybody** is not sent either: a mass mailing from a panel whose mail was set up an hour ago is a decision for a person, with the list of users in front of them.
+- **`raptor audit` is about usability, not safety.** A suspicious egg script, an administrator nobody knows or a task that downloads something is not an error to it. `docs/cutover-review.sql` is the list of those questions, and the activity log of the old panel (suspicious events) has no check of its own.
 - **A real node and a real bucket** have not been tried (`docs/first-test.md`); the first time is the VPS test, and the rehearsal.

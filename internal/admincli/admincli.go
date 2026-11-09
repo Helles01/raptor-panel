@@ -42,7 +42,8 @@ func usagef(format string, a ...any) error { return UsageError{fmt.Sprintf(forma
 func Commands(s *admin.Service) map[string]map[string]Handler {
 	c := &commands{s: s}
 	return map[string]map[string]Handler{
-		"user":     {"create": c.userCreate, "delete": c.userDelete, "disable-2fa": c.userDisable2FA, "reset-2fa": c.userReset2FA},
+		"user": {"create": c.userCreate, "delete": c.userDelete, "disable-2fa": c.userDisable2FA, "reset-2fa": c.userReset2FA, "reset-passwords": c.userResetPasswords,
+			"set-password": c.userSetPassword},
 		"apikey":   {"create": c.apikeyCreate},
 		"location": {"create": c.locationCreate},
 		"node":     {"create": c.nodeCreate},
@@ -418,6 +419,53 @@ func (c *commands) userReset2FA(ctx context.Context, e Env, args []string) error
 		fmt.Fprintf(e.Stderr, "Two-factor authentication is now required of: %s.\n", *require)
 	} else {
 		fmt.Fprintln(e.Stderr, "Whether they must is the setting pterodactyl:auth:2fa_required (raptor settings set, or run this again with --require).")
+	}
+	return nil
+}
+
+// userResetPasswords takes the password of everybody. It is for the cutover, when the hashes of the old panel were copied with its database and count as known
+// to others, and it asks for --yes because it signs everybody out and cannot be taken back.
+func (c *commands) userResetPasswords(ctx context.Context, e Env, args []string) error {
+	fs := flags("user reset-passwords")
+	all := fs.Bool("all", false, "every user (for one user there is set-password)")
+	yes := fs.Bool("yes", false, "really do it (without it nothing is changed, and the number of users who would be affected is shown)")
+	if _, err := parse(fs, args, 0); err != nil {
+		return err
+	}
+	if !*all {
+		return usagef("user reset-passwords: --all is required (to give one user a new password, use user set-password)")
+	}
+	n, err := c.s.ResetAllPasswords(ctx, *yes)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.Stderr, "Took the password of %d user(s) and signed them all out. They choose a new one with the \"forgot password\" page, which needs the mail to work; "+
+		"`user set-password` gives one back to an administrator without it.\n", n)
+	return nil
+}
+
+// userSetPassword gives one user a new password, from the standard input or made, and signs them out.
+func (c *commands) userSetPassword(ctx context.Context, e Env, args []string) error {
+	fs := flags("user set-password")
+	fromStdin := fs.Bool("password-stdin", false, "read the password from the first line of the standard input (otherwise one is made)")
+	rest, err := parse(fs, args, 1)
+	if err != nil {
+		return err
+	}
+	password := ""
+	if *fromStdin {
+		if password, err = readLine(e.Stdin); err != nil {
+			return err
+		}
+	}
+	u, made, err := c.s.SetPassword(ctx, rest[0], password)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.Stderr, "Gave %s (id %d) a new password and signed them out.\n", u.Username, u.ID)
+	if made != "" {
+		fmt.Fprintln(e.Stderr, "The password is on the standard output. It is not kept anywhere else.")
+		fmt.Fprintln(e.Stdout, made)
 	}
 	return nil
 }

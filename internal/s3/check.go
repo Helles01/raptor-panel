@@ -40,7 +40,10 @@ func (c *Client) Check(ctx context.Context) []Step {
 	// Whatever happens below, nothing of the check is left in the bucket if it can be helped.
 	var uploadID string
 	var objectMaybe bool
+	// It must work when the check was stopped, by Ctrl-C or a deadline, which is when something is most likely to be left: it does not follow ctx.
 	cleanup := func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupWait)
+		defer cancel()
 		if uploadID != "" {
 			_ = c.AbortMultipartUpload(ctx, key, uploadID)
 		}

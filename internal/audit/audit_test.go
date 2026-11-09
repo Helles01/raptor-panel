@@ -408,3 +408,25 @@ func TestReportJSON(t *testing.T) {
 		t.Errorf("a section without findings must show an empty list, not null:\n%s", raw)
 	}
 }
+
+// The rows come from a database that somebody else may have made: a name with an escape sequence in it must not reach the terminal of whoever reads the report.
+// The JSON form quotes it, and the text form replaces it.
+func TestTextDoesNotCarryControlCharacters(t *testing.T) {
+	r := run(Input{Users: []User{{ID: 1, Username: "evil\x1b]0;owned\x07\nname", Email: "e@example.com", PasswordHash: "x"}}})
+	text := r.Text()
+	if strings.ContainsAny(text, "\x1b\x07\x00\r") {
+		t.Fatalf("text carries control characters: %q", text)
+	}
+	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		if strings.Contains(line, "evil") && !strings.HasPrefix(line, "  error") && !strings.HasPrefix(line, "  warning") {
+			t.Errorf("a name broke out of its line: %q", line)
+		}
+		if strings.HasPrefix(line, "name") {
+			t.Errorf("the rest of a name started a line of its own: %q", line)
+		}
+	}
+	data, err := r.JSON()
+	if err != nil || strings.ContainsAny(string(data), "\x1b\x07") {
+		t.Errorf("json: %v, %q", err, data)
+	}
+}

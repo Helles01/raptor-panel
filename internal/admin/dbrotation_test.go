@@ -167,6 +167,28 @@ func TestRotateAllOnOneHost(t *testing.T) {
 	}
 }
 
+// One database is changed on its own, and the others are not touched: this is how a database whose store failed is put right.
+func TestRotateDatabaseChangesOnlyThatOne(t *testing.T) {
+	r, st, h := newDBRotation(t)
+	var nc *DatabasesNotConfirmedError
+	if _, err := r.RotateDatabase(context.Background(), 3, false); !errors.As(err, &nc) || nc.Count != 1 || len(h.ran) != 0 || len(st.passwords) != 0 {
+		t.Fatalf("not confirmed: %v, host runs %v", err, h.ran)
+	}
+	rep, err := r.RotateDatabase(context.Background(), 3, true)
+	if err != nil || rep.Total != 1 || rep.Changed != 1 || len(h.ran) != 1 || h.ran[0] != 1 || len(st.passwords) != 1 || st.passwords[3] == "" {
+		t.Errorf("report = %+v, err = %v, host runs %v, passwords %v", rep, err, h.ran, st.passwords)
+	}
+	// A database that is not there is not found, and nothing is run.
+	h.ran = nil
+	if _, err := r.RotateDatabase(context.Background(), 99, true); !errors.Is(err, ErrNotFound) || len(h.ran) != 0 {
+		t.Errorf("a database that is not there: %v, host runs %v", err, h.ran)
+	}
+	st.listErr = errBoom
+	if _, err := r.RotateDatabase(context.Background(), 3, true); !errors.Is(err, errBoom) {
+		t.Errorf("a store that fails: %v", err)
+	}
+}
+
 // A database that cannot be changed does not stop the others, and the report says how far it got.
 func TestRotateAllReportsWhatFailedAndGoesOn(t *testing.T) {
 	r, st, h := newDBRotation(t)

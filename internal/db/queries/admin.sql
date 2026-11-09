@@ -189,3 +189,24 @@ DELETE FROM recovery_tokens;
 -- name: DeleteAllSealedTotpSecrets :exec
 DELETE FROM raptor_secrets
 WHERE table_name = 'users' AND column_name = 'totp_secret';
+
+-- name: CountUsers :one
+SELECT COUNT(*)
+FROM users;
+
+-- The address of a user, read with the row locked, so that the password and the reset links asked for with that address change together.
+-- name: LockUserEmail :one
+SELECT email
+FROM users
+WHERE id = ?
+FOR UPDATE;
+
+-- name: SetAllPasswords :execrows
+UPDATE users
+SET password = ?, updated_at = ?;
+
+-- name: DeleteAllSessions :exec
+DELETE FROM sessions;
+
+-- name: DeleteAllPasswordResets :exec
+DELETE FROM password_resets;

@@ -24,7 +24,7 @@ panel serves exactly the routes of the reference (`TestBuiltPanelServesTheRefere
 
 ## The order on the test machine
 0. Before anything is started: `raptor doctor` (it looks at the configuration, the key, the frontend build, the database, the schema, the nodes and the mail, and says what is wrong), and, with S3 settings, `raptor backups check` (it tries the bucket the way a node and a browser would). `deploy/README.md` is how the machine is set up.
-1. `raptor keygen` for the secrets key (kept in the environment, never in a file that is committed); `raptor db check` on the database, then `raptor db migrate` (Raptor's own additive migration, `raptor_secrets`).
+1. `raptor keygen` for the secrets key (kept in the environment, never in a file that is committed). An **empty** database: `raptor db init` (the tables of the reference and Raptor's own). A **copy of the old panel's** database: `raptor db check`, then `raptor db migrate` (Raptor's own additive migration, `raptor_secrets`).
 2. `raptor user create --admin --email … --username … --first-name … --last-name … --password-stdin`.
 3. `raptor apikey create --user … --application --description … --access servers=rw --access nodes=rw …`; the key is on the standard output, once.
 4. `raptor location create`, `raptor node create …` → the `config.yml` for Wings on the standard output; save it on the node.
@@ -37,5 +37,20 @@ panel serves exactly the routes of the reference (`TestBuiltPanelServesTheRefere
 - `egg_variables.field_type`: the reference importer passes the file's `field_type`, but no column of that name was found among the migrations; the dump will say.
 - The strict CSP of the page shell has been served and checked for its header in `TestPanelEndToEnd`, but no browser has run the frontend against it yet; this is its first test.
 - Mail: the panel sends it through the SMTP settings of the `settings` table; the password of the mail server is read from `raptor_secrets`: `raptor settings set-mail-password --password-stdin` sets it on a fresh installation (`docs/modules/24-mail-password.md`), `raptor migrate-secrets` brings the old one.
-- `raptor audit` is written (`internal/audit`) but the command needs the user's separate approval (plan 13.5).
+- `raptor audit` (plan 13.5, `docs/modules/27-audit-and-passwords.md`) checks that the rows of an imported database are usable; it was run on a test database only. Run it on the copy of the old panel's database first (`docs/cutover.md` step 5).
 - S3 backups are built and tested against a test bucket (`docs/modules/25-s3-backups.md`), not against a real one: on the VPS, set the `RAPTOR_BACKUPS_*` variables, start a backup from the panel and watch the object appear, then download, restore and delete it. Whether the old panel kept backups on S3 is not known; if it did, its backups are found by the same key.
+
+## The checklist for the VPS (2026-11-09)
+Nothing has to be written for the milestone any more: every route, store, command and the deploy files exist and are tested against a real MariaDB and fakes. What is left is a machine, and what a real Wings and a real browser show for
+the first time. Neither has ever run against Raptor, so expect rounds of fixing after first contact (the wire formats of the node were written from the reference and its daemon's source, the strict page policy has never met a browser with real data, the console and files have only been tested with fakes).
+
+**Before touching the VPS (on this PC, nothing to install):**
+1. `GOOS=linux GOARCH=amd64 go build -o raptor ./cmd/raptor` (the binary), `bash scripts/frontend-check.sh` (the build in `web/public/assets`), and the Wings binary already downloaded (`versions.env` has its SHA-256). Copy the three to the VPS and check the hashes there.
+2. Decide the addresses. The simplest first test has **no TLS at all**: `RAPTOR_APP_URL=http://<ip>:8080`, nodes with `--scheme http`. A panel on https needs the node on https too (the browser blocks a console to an http node from an https page), which means two names and two certificates; leave that for the second test. `raptor doctor` will warn about http, which is right.
+3. Wings and the panel both default to port 8080: on one machine give the node another one (`raptor node create … --listen-port 8081`, and open 2022 for SFTP).
+
+**On the VPS (Ubuntu 22.04 or 24.04, 2 GB of memory or more):** MariaDB (a new database and user, `deploy/README.md`), Docker Engine (from its own repository, key fingerprint in `versions.env`), then `deploy/README.md` from the top to `raptor doctor`, then "The order on the test machine" above. About one to two hours if nothing goes wrong.
+
+**Then the milestone:** create the location, node, nest and egg (`reference/database/Seeders/eggs/minecraft/egg-paper.json` is a good first egg), start Wings with the saved `config.yml`, create the server with an application key, and go through the eight criteria of the plan in a browser, writing each into `docs/modules/milestone-1.md`.
+
+**What I would expect to break, in this order:** the node's first calls (`GET /api/remote/servers`, the install report), the console (the token and the origin policy), the files, then backups. Each is a small fix with the log of the failing call; keep the panel's log (`journalctl -u raptor`) and the node's (`/var/log/pterodactyl/wings.log`) for every failure.

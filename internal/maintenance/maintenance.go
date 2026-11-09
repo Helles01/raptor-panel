@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/Helles01/raptor-panel/internal/schedules"
@@ -60,18 +61,40 @@ func PruneOrphanedBackups(s BackupStore, age time.Duration, aborter UploadAborte
 		if err != nil || aborter == nil || len(uploads) == 0 {
 			return report, err
 		}
-		failed := 0
+		// The backup is marked already, so the next run does not list it again: this report is the only trace of an upload that could not be thrown away, and it
+		// has to say which one and why, or nobody can clean it up in the bucket.
+		var failed []string
 		for _, u := range uploads {
 			if aerr := aborter.Abort(ctx, u.ServerUUID, u.BackupUUID, u.UploadID); aerr != nil {
-				failed++
+				failed = append(failed, fmt.Sprintf("backup %s of server %s: %s", u.BackupUUID, u.ServerUUID, oneLine(aerr.Error())))
 			}
 		}
-		report += fmt.Sprintf("; %d open uploads on S3 were aborted", len(uploads)-failed)
-		if failed > 0 {
-			report += fmt.Sprintf(" and %d could not be", failed)
+		report += fmt.Sprintf("; %d open uploads on S3 were aborted", len(uploads)-len(failed))
+		if len(failed) > 0 {
+			report += fmt.Sprintf(" and %d could not be (%s)", len(failed), strings.Join(failed[:min(len(failed), maxNamedFailures)], "; "))
+			if len(failed) > maxNamedFailures {
+				report += fmt.Sprintf(" and %d more", len(failed)-maxNamedFailures)
+			}
 		}
 		return report, nil
 	}}
+}
+
+// maxNamedFailures is how many uploads that could not be aborted a report names; the rest are counted.
+const maxNamedFailures = 5
+
+// oneLine makes an error fit in a line of the log: control characters become spaces, and it is cut.
+func oneLine(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < ' ' || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	return strings.TrimSpace(s)
 }
 
 // ActivityStore deletes old activity.

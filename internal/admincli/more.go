@@ -496,20 +496,36 @@ type databaseRotationCmds struct{ r *admin.DatabaseRotation }
 func (c *databaseRotationCmds) rotateAll(ctx context.Context, e Env, args []string) error {
 	fs := flags("dbhost rotate-all")
 	host := fs.Uint64("host", 0, "only the databases on this database host (an id; the default is every host)")
+	database := fs.Uint64("database", 0, "only this database (an id): to put right one that a report said the panel could not keep")
 	yes := fs.Bool("yes", false, "really do it (without it nothing is changed, and the number of databases is shown)")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
-	var only *uint64
+	var onlyHost, onlyDatabase *uint64
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "host" {
-			only = host
+		switch f.Name {
+		case "host":
+			onlyHost = host
+		case "database":
+			onlyDatabase = database
 		}
 	})
-	if only != nil && *only == 0 {
+	if onlyHost != nil && *onlyHost == 0 {
 		return usagef("dbhost rotate-all: --host is the id of a database host, a number above 0")
 	}
-	report, err := c.r.RotateAll(ctx, only, *yes)
+	if onlyDatabase != nil && *onlyDatabase == 0 {
+		return usagef("dbhost rotate-all: --database is the id of a database, a number above 0")
+	}
+	if onlyHost != nil && onlyDatabase != nil {
+		return usagef("dbhost rotate-all: --host and --database do not go together")
+	}
+	var report admin.DatabaseRotationReport
+	var err error
+	if onlyDatabase != nil {
+		report, err = c.r.RotateDatabase(ctx, *onlyDatabase, *yes)
+	} else {
+		report, err = c.r.RotateAll(ctx, onlyHost, *yes)
+	}
 	if err != nil {
 		var nc *admin.DatabasesNotConfirmedError
 		if errors.As(err, &nc) {
@@ -521,7 +537,7 @@ func (c *databaseRotationCmds) rotateAll(ctx context.Context, e Env, args []stri
 	for _, f := range report.Failed {
 		what := "nothing was changed"
 		if f.Stage == "store" {
-			what = "the host has the new password and the panel does not: run the command again"
+			what = fmt.Sprintf("the host has the new password and the panel does not: run `dbhost rotate-all --database %d --yes` (not the whole command again, which would change the others once more)", f.ID)
 		}
 		fmt.Fprintf(e.Stderr, "  database %d (%s, host %d): %s: %s\n", f.ID, cell(f.Name), f.HostID, what, cell(f.Cause))
 	}

@@ -133,6 +133,18 @@ func (q *Queries) CountOwnedServers(ctx context.Context, ownerID uint32) (int64,
 	return count, err
 }
 
+const countUsers = `-- name: CountUsers :one
+SELECT COUNT(*)
+FROM users
+`
+
+func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsersWithTwoFactor = `-- name: CountUsersWithTwoFactor :one
 SELECT COUNT(*)
 FROM users
@@ -211,6 +223,15 @@ func (q *Queries) DeleteAllAPIKeys(ctx context.Context) (int64, error) {
 	return result.RowsAffected()
 }
 
+const deleteAllPasswordResets = `-- name: DeleteAllPasswordResets :exec
+DELETE FROM password_resets
+`
+
+func (q *Queries) DeleteAllPasswordResets(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllPasswordResets)
+	return err
+}
+
 const deleteAllRecoveryTokens = `-- name: DeleteAllRecoveryTokens :exec
 DELETE FROM recovery_tokens
 `
@@ -227,6 +248,15 @@ WHERE table_name = 'users' AND column_name = 'totp_secret'
 
 func (q *Queries) DeleteAllSealedTotpSecrets(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteAllSealedTotpSecrets)
+	return err
+}
+
+const deleteAllSessions = `-- name: DeleteAllSessions :exec
+DELETE FROM sessions
+`
+
+func (q *Queries) DeleteAllSessions(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllSessions)
 	return err
 }
 
@@ -966,6 +996,21 @@ func (q *Queries) LockUser(ctx context.Context, id uint32) (uint32, error) {
 	return id_2, err
 }
 
+const lockUserEmail = `-- name: LockUserEmail :one
+SELECT email
+FROM users
+WHERE id = ?
+FOR UPDATE
+`
+
+// The address of a user, read with the row locked, so that the password and the reset links asked for with that address change together.
+func (q *Queries) LockUserEmail(ctx context.Context, id uint32) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockUserEmail, id)
+	var email string
+	err := row.Scan(&email)
+	return email, err
+}
+
 const nestExists = `-- name: NestExists :one
 SELECT COUNT(*)
 FROM nests
@@ -977,6 +1022,24 @@ func (q *Queries) NestExists(ctx context.Context, id uint32) (int64, error) {
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const setAllPasswords = `-- name: SetAllPasswords :execrows
+UPDATE users
+SET password = ?, updated_at = ?
+`
+
+type SetAllPasswordsParams struct {
+	Password  string
+	UpdatedAt sql.NullTime
+}
+
+func (q *Queries) SetAllPasswords(ctx context.Context, arg SetAllPasswordsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAllPasswords, arg.Password, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateDatabaseHost = `-- name: UpdateDatabaseHost :exec

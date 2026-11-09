@@ -228,6 +228,28 @@ func TestCheckSaysWhereItStoppedAndCleansUp(t *testing.T) {
 	}
 }
 
+// A check that is stopped (Ctrl-C, a deadline) after the object was put together is the case most likely to leave something behind, and the cleanup must not
+// stop with it.
+func TestCheckThatIsStoppedStillCleansUp(t *testing.T) {
+	b := newMemBucket(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.deny = func(r *http.Request) bool {
+		if r.Method == "GET" {
+			cancel() // stopped while the object is being read
+		}
+		return false
+	}
+	steps := b.c.Check(ctx)
+	// Whether the read or the delete after it is the step that feels the stop depends on timing; the check ends in a failure at one of them either way.
+	if last := steps[len(steps)-1]; last.Err == nil {
+		t.Fatalf("the last step did not fail: %+v", last)
+	}
+	if len(b.objects) != 0 || len(b.uploads) != 0 {
+		t.Errorf("left in the bucket after the stop: %d objects, %d uploads", len(b.objects), len(b.uploads))
+	}
+}
+
 // A bucket that will not delete what the check made says so, and what is left is named by the failure: the administrator has one object to remove.
 func TestCheckWhenTheObjectCannotBeDeleted(t *testing.T) {
 	b := newMemBucket(t)

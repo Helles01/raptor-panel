@@ -19,15 +19,15 @@ replaced (`docs/cutover.md`) and the weeks after it are done with commands that 
 ## 1 — Uploads that never finished
 A multipart upload that is never completed or aborted stays in the bucket and its parts are paid for. The prune job (a background job of `raptor serve`, every half hour) already marked backups that never ended as
 failed. It now also lists their open uploads (`FailOrphans` takes the rows `FOR UPDATE` inside the transaction, so a report from the node that arrives meanwhile either wins or loses cleanly) and aborts each one
-on S3 **after** the transaction. The report says how many were aborted and how many could not be (`N open uploads on S3 were aborted[ and M could not be]`); a failed abort is not an error of the job, because
-the row is already marked and the next run does not see it again, so the number is the only trace and the bucket's lifecycle rules are still the safety net.
+on S3 **after** the transaction. The report says how many were aborted and how many could not be (`N open uploads on S3 were aborted[ and M could not be (backup X of server Y: the bucket's answer)]`, the first five named and the rest counted); a failed abort is not an error of the job, because
+the row is already marked and the next run does not see it again, so the report is the only trace and has to say which upload it was; the bucket's lifecycle rules are still the safety net. (Found in review: the first version only counted them.)
 - **Reference:** none; the reference leaves them to the bucket's lifecycle rules. **Different on purpose:** the panel does what it can itself, and keeps the rest to the bucket.
 - **Tests:** unit (the aborter is called for each upload, a failing aborter is counted and not fatal, no aborter means no S3 call), and on the real database that the list is exactly the uploads of the rows that were marked.
 
 ## 2 — `web.reload`
 `raptor serve` reads the frontend's `manifest.json` once at start (`22-visual-identity.md` says what happened when it was forgotten). With `web.reload: true` (env `RAPTOR_WEB_RELOAD`) a loop looks at the
 manifest every two seconds (size and modification time) and gives the page shell the new file names and integrity values (`Shell.Reload`, guarded by a lock). A manifest that is half written or wrong is
-**not** taken: the old one stays and one warning is logged for each bad version. It is off by default and meant for development; the production way is still a restart.
+**not** taken: the old one stays and one warning is logged for each bad version. The first look never trusts the stamp taken at start: it always checks, so a build made between the load and the loop is served too (found in review), and it says nothing when the build is the one the shell has. It is off by default and meant for development; the production way is still a restart.
 - **Tests:** a new build is served after the file changes, a bad manifest keeps the old page and warns once, the loop stops with the context; the shell is read and reloaded at the same time under the race detector.
 
 ## 3 — The `features` section
@@ -42,7 +42,7 @@ reference's values (databases on, a random host allowed, administrators' activit
 ## 4 — `raptor backups check`
 Tries the bucket the way the panel, a node and a browser use it, with an object of its own (a name made for the test, never one of a backup): start an upload, sign an address for a part, send a part through the
 address (as the node would, with no credentials), put the parts together, read it back through a signed address (as a browser would) and compare, delete it. Every step is printed with `ok` or the reason; the
-object is removed even when a step before the last fails. It needs no database, only the `RAPTOR_BACKUPS_S3_*` settings, and prints no key and no signed address.
+object is removed even when a step before the last fails, and even when the command was stopped (the cleanup does not follow the cancelled context; found in review). It needs no database, only the `RAPTOR_BACKUPS_S3_*` settings, and prints no key and no signed address.
 The first run against a real bucket is the VPS test; this is the command to run first.
 - **Different from the reference:** the reference has no such command; a wrong bucket shows on the first backup.
 - **Tests:** against a test bucket that verifies both kinds of signature from what arrived, for each step failing in turn (a refused part, a corrupted read), and that the object is gone afterwards.
@@ -57,7 +57,7 @@ that need it are shown as skipped. The exit code is 1 only when there is a `FAIL
 
 ## 6 — `deploy/`
 `raptor.service` (an unprivileged user, `ExecStartPre=… raptor doctor`, a hardened sandbox: no new privileges, a read-only system, private temporary directory, only the directories it writes to), `raptor.env.example`
-(every variable the code reads, with no secret in it), `nginx.conf.example` and `Caddyfile.example` (WebSocket upgrade for the console, the client address passed on in the way `trusted_proxies` expects), and `README.md`
+(every variable the code reads, with no secret in it), `nginx.conf.example` and `Caddyfile.example` (the client address passed on in the way `trusted_proxies` expects; no WebSocket handling, because the browser talks to the nodes for the console and the files, not to the panel), and `README.md`
 (the order of the setup, the alias that runs `raptor` with the service's environment).
 - **Tests (`deploy/deploy_test.go`):** every `RAPTOR_*` variable in the code is in the example and the other way round, the example values are accepted by the configuration loader, no secret is in any file, the unit
   keeps its hardening lines, both proxy examples pass `$remote_addr`. Six mutants made on purpose (a variable dropped from the example, a secret added, a hardening line removed, …) were all caught.
@@ -71,7 +71,7 @@ after a leak they count as known (`docs/plan.md` 13.3).
 
 ## 8 — `raptor dbhost rotate-all`
 Sets a new password on **every database of every server** (or of one host with `--host N`): first on the database host, then in Raptor's store. It continues after a failure and lists the databases that failed
-with the stage (`host` or `store`), so a failed one is still working with its old password and can be run again. It needs `--yes`; without it it shows how many databases it would change. `--host 0` is a usage error.
+with the stage (`host` or `store`), so a failed one is still working with its old password and can be run again. It needs `--yes`; without it it shows how many databases it would change. `--host 0` is a usage error. A database whose report says `store` is put right with `--database N --yes`, which touches that one only (running the whole command again would change every other database once more; found in review).
 This is separate from `dbhost rotate-password` (the account the panel uses on the host), because it breaks every game server that has the old password written in a configuration file; `docs/cutover.md` says so before it is used.
 - **Matched against the reference:** `DatabasePasswordService::handle` (a new random password, `ALTER USER`, then the row); the same order and the same operation, for all rows.
 - **Tests:** unit (the order host then store, a host failure keeps the store as it was, a store failure is reported with its stage, `--host` selects, `--yes`), on the real database that the sealed password is the one that was set on the host. Six mutants caught.
@@ -87,7 +87,7 @@ was changed after the check is left alone, and the whole run is one transaction;
 ## 10 — The runbook
 `docs/cutover.md`: the order of the day (a rehearsal, the dump, the import, the schema check, the review, the conversion, the rotation, the start, each node, the validation period, the closing) with the commands
 as they exist. `docs/cutover-review.sql` is a set of read-only questions about the imported data (administrators, keys, eggs and their install scripts, schedules and tasks, mounts, nodes, database hosts, settings, activity);
-it was run against the test database. Both say plainly what does not exist: the `raptor audit` command (waits for the owner's approval, `docs/plan.md` 13.5), a forced change of passwords, and a real node and bucket.
+it was run against the test database. When it was written it said plainly what did not exist: the `raptor audit` command and a way to take the passwords of everybody (both built afterwards, `27-audit-and-passwords.md`), and a real node and bucket (still so).
 
 ## Not tested here
 A real old database, a real node and a real bucket. Everything above ran against test databases, test buckets and fakes; the rehearsal in `docs/cutover.md` step 1 and the VPS test (`docs/first-test.md`) are where that changes.

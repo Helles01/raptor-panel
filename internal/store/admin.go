@@ -754,3 +754,54 @@ func (s adminDatabases) SetPassword(ctx context.Context, id uint64, password str
 		return err
 	}
 }
+
+// SetPassword changes the password of a user, with the row locked, and ends what the old one had opened: the sessions, and the reset links asked for with the
+// address of the user.
+func (s adminStore) SetPassword(ctx context.Context, id uint64, hash string) error {
+	return s.inTx(ctx, func(q *dbq.Queries) error {
+		email, err := q.LockUserEmail(ctx, uint32(id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return admin.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("find user %d: %w", id, err)
+		}
+		if _, err := q.SetUserPassword(ctx, dbq.SetUserPasswordParams{Password: hash, UpdatedAt: sql.NullTime{Time: s.now().UTC(), Valid: true}, ID: uint32(id)}); err != nil {
+			return fmt.Errorf("store the password of user %d: %w", id, err)
+		}
+		if err := q.DeleteSessionsForUser(ctx, sql.NullInt32{Int32: int32(id), Valid: true}); err != nil {
+			return fmt.Errorf("end the sessions of user %d: %w", id, err)
+		}
+		if _, err := q.DeletePasswordResets(ctx, email); err != nil {
+			return fmt.Errorf("remove the reset links of user %d: %w", id, err)
+		}
+		return nil
+	})
+}
+
+// CountUsers counts the users.
+func (s adminStore) CountUsers(ctx context.Context) (int64, error) {
+	n, err := s.q.CountUsers(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count the users: %w", err)
+	}
+	return n, nil
+}
+
+// SetAllPasswords gives every user the same password hash and ends every session and reset link, in one transaction. The number is taken in the same
+// transaction, from the rows that were changed.
+func (s adminStore) SetAllPasswords(ctx context.Context, hash string) (int64, error) {
+	var n int64
+	err := s.inTx(ctx, func(q *dbq.Queries) (err error) {
+		if n, err = q.SetAllPasswords(ctx, dbq.SetAllPasswordsParams{Password: hash, UpdatedAt: sql.NullTime{Time: s.now().UTC(), Valid: true}}); err != nil {
+			return fmt.Errorf("take the passwords: %w", err)
+		}
+		if err = q.DeleteAllSessions(ctx); err != nil {
+			return fmt.Errorf("end the sessions: %w", err)
+		}
+		if err = q.DeleteAllPasswordResets(ctx); err != nil {
+			return fmt.Errorf("remove the reset links: %w", err)
+		}
+		return nil
+	})
+	return n, err
+}

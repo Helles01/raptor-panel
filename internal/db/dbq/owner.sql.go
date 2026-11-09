@@ -883,6 +883,7 @@ const portsOfNodeAddress = `-- name: PortsOfNodeAddress :many
 SELECT port
 FROM allocations
 WHERE node_id = ? AND ip = ?
+FOR UPDATE
 `
 
 type PortsOfNodeAddressParams struct {
@@ -890,6 +891,9 @@ type PortsOfNodeAddressParams struct {
 	Ip     string
 }
 
+// A locking read, on purpose: it reads what is committed now and not the snapshot of the transaction, which was taken at its first plain read (the count of the
+// server's allocations), before the request that went first had made its port. Without the lock the ports are stale, two requests choose the same one and the
+// second fails on the unique key; MariaDB 11.8 with innodb_snapshot_isolation hides it by failing the lock before, MariaDB 10.x and MySQL 8 do not.
 func (q *Queries) PortsOfNodeAddress(ctx context.Context, arg PortsOfNodeAddressParams) ([]uint32, error) {
 	rows, err := q.db.QueryContext(ctx, portsOfNodeAddress, arg.NodeID, arg.Ip)
 	if err != nil {

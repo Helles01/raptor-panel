@@ -51,6 +51,7 @@ type Querier interface {
 	CountServersOfNode(ctx context.Context, nodeID uint32) (int64, error)
 	CountServersOnNode(ctx context.Context, nodeID uint32) (int64, error)
 	CountSubuserEntries(ctx context.Context, arg CountSubuserEntriesParams) (int64, error)
+	CountUsers(ctx context.Context) (int64, error)
 	// A user has a second factor when it is switched on, or a secret is kept for it in either place.
 	CountUsersWithTwoFactor(ctx context.Context) (int64, error)
 	DatabaseHostByID(ctx context.Context, id uint32) (DatabaseHostByIDRow, error)
@@ -61,8 +62,10 @@ type Querier interface {
 	DeleteAPIKeysOfType(ctx context.Context, keyType uint8) (int64, error)
 	DeleteActivityChunk(ctx context.Context, timestamp time.Time) (int64, error)
 	DeleteAllAPIKeys(ctx context.Context) (int64, error)
+	DeleteAllPasswordResets(ctx context.Context) error
 	DeleteAllRecoveryTokens(ctx context.Context) error
 	DeleteAllSealedTotpSecrets(ctx context.Context) error
+	DeleteAllSessions(ctx context.Context) error
 	DeleteAllocation(ctx context.Context, id uint32) error
 	DeleteApplicationKeySecretsOfUser(ctx context.Context, userID uint32) error
 	DeleteApplicationKeysOfUser(ctx context.Context, userID uint32) error
@@ -173,6 +176,8 @@ type Querier interface {
 	LockSubuserEntries(ctx context.Context, arg LockSubuserEntriesParams) ([]uint32, error)
 	LockTasksOfSchedule(ctx context.Context, scheduleID uint32) ([]LockTasksOfScheduleRow, error)
 	LockUser(ctx context.Context, id uint32) (uint32, error)
+	// The address of a user, read with the row locked, so that the password and the reset links asked for with that address change together.
+	LockUserEmail(ctx context.Context, id uint32) (string, error)
 	MakeRoomForTask(ctx context.Context, arg MakeRoomForTaskParams) error
 	MarkTaskQueued(ctx context.Context, arg MarkTaskQueuedParams) error
 	MountsOfServers(ctx context.Context, ids []uint32) ([]MountsOfServersRow, error)
@@ -197,6 +202,9 @@ type Querier interface {
 	PeopleByID(ctx context.Context, ids []uint32) ([]PeopleByIDRow, error)
 	// A free allocation on the server's address, at random as in the reference.
 	PickFreeAllocation(ctx context.Context, arg PickFreeAllocationParams) (uint32, error)
+	// A locking read, on purpose: it reads what is committed now and not the snapshot of the transaction, which was taken at its first plain read (the count of the
+	// server's allocations), before the request that went first had made its port. Without the lock the ports are stale, two requests choose the same one and the
+	// second fails on the unique key; MariaDB 11.8 with innodb_snapshot_isolation hides it by failing the lock before, MariaDB 10.x and MySQL 8 do not.
 	PortsOfNodeAddress(ctx context.Context, arg PortsOfNodeAddressParams) ([]uint32, error)
 	PutSession(ctx context.Context, arg PutSessionParams) error
 	RecoveryTokensForUser(ctx context.Context, userID uint32) ([]RecoveryTokensForUserRow, error)
@@ -223,6 +231,7 @@ type Querier interface {
 	// The servers a node holds, a page at a time, with what their configuration needs from the same row and from the node, the location and the egg
 	// (and the egg it takes its process configuration from, if any).
 	ServersOfNode(ctx context.Context, arg ServersOfNodeParams) ([]ServersOfNodeRow, error)
+	SetAllPasswords(ctx context.Context, arg SetAllPasswordsParams) (int64, error)
 	SetAllocationNotes(ctx context.Context, arg SetAllocationNotesParams) error
 	SetBackupLocked(ctx context.Context, arg SetBackupLockedParams) error
 	// The id of the multipart upload a node was given addresses for; a backup that has ended keeps the one it had.

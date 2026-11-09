@@ -620,7 +620,7 @@ columns exist, everything can be decrypted by anyone who knows the key and has t
 
 `HASHIDS_SALT` is not a secret, and changing it would change the identifiers visible in URLs, so it stays.
 
-*Status 2026-11-09:* every command of this table exists (`node rotate-token`, `apikey revoke --all`, `user reset-2fa --all`, `dbhost rotate-password` and `rotate-all`, `settings set-mail-password`, and `migrate-secrets --finalize` in 13.2); `docs/cutover.md` is the runbook that puts them in order. The `raptor audit` command of 13.5 is still waiting for the owner's approval.
+*Status 2026-11-09:* every command of this table exists (`node rotate-token`, `apikey revoke --all`, `user reset-2fa --all`, `dbhost rotate-password` and `rotate-all`, `settings set-mail-password`, and `migrate-secrets --finalize` in 13.2); `docs/cutover.md` is the runbook that puts them in order. The `raptor audit` command of 13.5 was approved and built on 2026-11-09 (`docs/modules/27-audit-and-passwords.md`), together with `user reset-passwords --all` and `user set-password`.
 
 With timing A, `migrate-secrets` is mainly needed to read `database_hosts.password` (to reach the host during rotation);
 node tokens, API keys and 2FA secrets are replaced by new values.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -297,10 +298,13 @@ type fakeAborter struct {
 func (a *fakeAborter) Abort(_ context.Context, serverUUID, backupUUID, uploadID string) error {
 	a.aborted = append(a.aborted, Upload{serverUUID, backupUUID, uploadID})
 	if a.failFor[uploadID] {
-		return errBoom
+		return errDenied
 	}
 	return nil
 }
+
+// errDenied is what the bucket says when it refuses; the control characters are there to see that the report does not carry them.
+var errDenied = errors.New("s3: AccessDenied: Access Denied\x00\n")
 
 // A backup on S3 that never finished has an upload open in the bucket: it is thrown away, and what could not be is said.
 func TestPruningOrphanedBackupsAbortsTheirUploads(t *testing.T) {
@@ -315,11 +319,22 @@ func TestPruningOrphanedBackupsAbortsTheirUploads(t *testing.T) {
 	// One that cannot be aborted does not stop the others, and does not make the job fail: the backups are marked, the bucket's own rules clear the rest.
 	a = &fakeAborter{failFor: map[string]bool{"up2": true}}
 	report, err = PruneOrphanedBackups(s, 6*time.Hour, a).Run(context.Background(), now)
-	if err != nil || report != "4 backups that never finished were marked as failed; 2 open uploads on S3 were aborted and 1 could not be" || len(a.aborted) != 3 {
+	// The report names it, because the backup is marked now and no later run will list it: it is the only trace of an upload left in the bucket.
+	if err != nil || report != "4 backups that never finished were marked as failed; 2 open uploads on S3 were aborted and 1 could not be (backup bkp2 of server srv2: s3: AccessDenied: Access Denied)" || len(a.aborted) != 3 {
 		t.Errorf("report %q, err %v, aborted %+v", report, err, a.aborted)
 	}
-	if strings.Contains(report, "hunter2") {
-		t.Errorf("the report repeats an error: %s", report)
+
+	// Many that cannot be aborted: the first few are named, the rest counted, and the line stays short.
+	many := make([]Upload, 8)
+	fail := map[string]bool{}
+	for i := range many {
+		id := fmt.Sprintf("up%d", i)
+		many[i] = Upload{"srv", fmt.Sprintf("bkp%d", i), id}
+		fail[id] = true
+	}
+	report, err = PruneOrphanedBackups(&fakeStore{n: 8, uploads: many}, 6*time.Hour, &fakeAborter{failFor: fail}).Run(context.Background(), now)
+	if err != nil || !strings.Contains(report, "0 open uploads on S3 were aborted and 8 could not be (") || !strings.Contains(report, "backup bkp4 of server srv") || strings.Contains(report, "bkp5") || !strings.HasSuffix(report, " and 3 more") {
+		t.Errorf("many failures: %q, %v", report, err)
 	}
 
 	// Without S3 settings, or with nothing open, nothing is said about uploads; a store that fails aborts nothing.

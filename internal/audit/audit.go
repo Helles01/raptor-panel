@@ -86,10 +86,21 @@ func (r Report) Text() string {
 		}
 		fmt.Fprintf(&b, "%s: %d checked, %d errors, %d warnings\n", sec.Name, sec.Checked, errs, warns)
 		for _, f := range sec.Findings {
-			fmt.Fprintf(&b, "  %-7s %s: %s\n", f.Severity, f.Ref, f.Message)
+			fmt.Fprintf(&b, "  %-7s %s: %s\n", f.Severity, printable(f.Ref), printable(f.Message))
 		}
 	}
 	return b.String()
+}
+
+// printable makes a text safe to put on a terminal. The rows come from a database that may have been made by somebody else (names, labels and values are their
+// text), and an escape sequence in a user name must not move the cursor, change a title or paste something into the terminal of whoever reads the report.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < ' ' || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 // JSON writes the report for a program.

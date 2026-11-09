@@ -254,7 +254,7 @@ func TestAllMergesTheParts(t *testing.T) {
 	rot, _ := admin.NewRotation(&rotStore{}, "https://panel.example.com", nil)
 
 	want := map[string][]string{
-		"user": {"create", "delete", "disable-2fa", "list", "reset-2fa"}, "apikey": {"create", "list", "revoke"}, "location": {"create", "list"},
+		"user": {"create", "delete", "disable-2fa", "list", "reset-2fa", "reset-passwords", "set-password"}, "apikey": {"create", "list", "revoke"}, "location": {"create", "list"},
 		"node": {"create", "list", "rotate-token"}, "nest": {"create"}, "egg": {"import"}, "settings": {"get", "list", "set", "set-mail-password"},
 		"dbhost": {"create", "delete", "list", "rotate-password", "test", "update"},
 	}

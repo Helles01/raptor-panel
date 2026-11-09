@@ -85,6 +85,14 @@ type Store interface {
 	// DisableAllTwoFactor removes the second factor of every user, with the secrets kept for them and every recovery token, in one transaction, and says how many
 	// users had one.
 	DisableAllTwoFactor(ctx context.Context) (int64, error)
+	// CountUsers is the number of users.
+	CountUsers(ctx context.Context) (int64, error)
+	// SetPassword stores a new password hash for a user, and in the same transaction ends their sessions and removes the reset links asked for with their address.
+	// ErrNotFound for a user who is not there.
+	SetPassword(ctx context.Context, id uint64, hash string) error
+	// SetAllPasswords stores the hash as the password of every user, ends every session and removes every reset link, in one transaction, and says how many users
+	// there were.
+	SetAllPasswords(ctx context.Context, hash string) (int64, error)
 	// CreateKey stores a key. check is called with the number of keys the user has, inside the transaction in which they are counted.
 	CreateKey(ctx context.Context, k NewKey, check func(count int) error) error
 	CreateLocation(ctx context.Context, short, long string) (uint64, error)
@@ -376,4 +384,63 @@ func (s *Service) ResetAllTwoFactor(ctx context.Context, confirmed bool) (int64,
 		return 0, &TwoFactorNotConfirmedError{Count: n}
 	}
 	return s.store.DisableAllTwoFactor(ctx)
+}
+
+// SetPassword gives a user a new password (made, and returned, when none is given) and ends their sessions. It is the way back in for an administrator after ResetAllPasswords when no mail is set up to
+// send a reset link. The reasons a password is refused are the ones of a new account.
+func (s *Service) SetPassword(ctx context.Context, ref, password string) (u User, made string, err error) {
+	if password == "" {
+		if password, err = ids.RandomAlnum(s.random, generatedPasswordLength); err != nil {
+			return User{}, "", fmt.Errorf("make a password: %w", err)
+		}
+		made = password
+	}
+	if err := users.ValidatePassword(password); err != nil {
+		return User{}, "", err
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return User{}, "", err
+	}
+	u, err = s.store.FindUser(ctx, ref)
+	if err != nil {
+		return User{}, "", err
+	}
+	if err := s.store.SetPassword(ctx, u.ID, hash); err != nil {
+		return User{}, "", err
+	}
+	return u, made, nil
+}
+
+// PasswordsNotConfirmedError is what ResetAllPasswords answers when it was not told to go ahead: nothing was changed, and Count is how many users would lose
+// their password.
+type PasswordsNotConfirmedError struct{ Count int64 }
+
+func (e *PasswordsNotConfirmedError) Error() string {
+	return fmt.Sprintf("%d user(s) would lose their password and be signed out, and nothing was changed: they get a new one with the \"forgot password\" page (so mail must work), "+
+		"and `raptor user set-password` is the way back in for an administrator; repeat the command with --yes to do it", e.Count)
+}
+
+// ResetAllPasswords takes the password of every user, because the hashes of the old panel were copied with its database and count as known to others
+// (plan 13.3). The password every account has afterwards is a bcrypt hash of a random text that is not kept anywhere, so no password matches it and nothing
+// else about the account looks wrong (it is a hash like any other, which the check of the imported data would otherwise report). Every session ends and every
+// reset link asked for before is removed, so a link that was sent from the old panel does not work either. Unless confirmed it changes nothing and answers a
+// *PasswordsNotConfirmedError with the number of users.
+func (s *Service) ResetAllPasswords(ctx context.Context, confirmed bool) (int64, error) {
+	if !confirmed {
+		n, err := s.store.CountUsers(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return 0, &PasswordsNotConfirmedError{Count: n}
+	}
+	secret, err := ids.RandomAlnum(s.random, 48)
+	if err != nil {
+		return 0, fmt.Errorf("make a password to throw away: %w", err)
+	}
+	hash, err := auth.HashPassword(secret)
+	if err != nil {
+		return 0, err
+	}
+	return s.store.SetAllPasswords(ctx, hash)
 }

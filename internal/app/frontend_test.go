@@ -123,11 +123,21 @@ func writeBuild(t *testing.T, dir string, n int, at time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "manifest.json")
-	if err := os.WriteFile(path, manifest, 0o600); err != nil {
+	putManifest(t, dir, manifest, at)
+}
+
+// putManifest puts a manifest in place with the time it is given, in one step: written under another name, given its time and renamed. A loop that looks every few
+// milliseconds would otherwise see the file with the time of the write and then again with the time given, and take them for two versions.
+func putManifest(t *testing.T, dir string, manifest []byte, at time.Time) {
+	t.Helper()
+	tmp := filepath.Join(dir, "manifest.json.tmp")
+	if err := os.WriteFile(tmp, manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(path, at, at); err != nil {
+	if err := os.Chtimes(tmp, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, "manifest.json")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -187,13 +197,7 @@ func TestWatchFrontendServesANewBuildWithoutARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest, _ := json.Marshal(map[string]map[string]string{"main.js": {"src": "/assets/bundle.3.js", "integrity": integrityOf("console.log('build 3')")}})
-	bad := filepath.Join(dir, "manifest.json")
-	if err := os.WriteFile(bad, manifest, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(bad, base.Add(2*time.Minute), base.Add(2*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	putManifest(t, dir, manifest, base.Add(2*time.Minute))
 	waitFor(t, "the complaint", func() bool { return strings.Contains(logs.String(), "was not taken") })
 	time.Sleep(100 * time.Millisecond) // ten more looks
 	if n := strings.Count(logs.String(), "was not taken"); n != 1 || !strings.Contains(pageOf(t, f), "bundle.2.js") {
@@ -203,6 +207,44 @@ func TestWatchFrontendServesANewBuildWithoutARestart(t *testing.T) {
 	// When it is right, it is taken.
 	writeBuild(t, dir, 4, base.Add(3*time.Minute))
 	waitFor(t, "the fourth build", func() bool { return strings.Contains(pageOf(t, f), "bundle.4.js") })
+}
+
+// A build made after the shell was loaded and before the loop began to look is served too: the loop does not take the manifest it finds first for the one the
+// shell was made from. And when nothing was made in between, the first look changes nothing and says nothing.
+func TestWatchFrontendTakesABuildMadeBeforeItBegan(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	writeBuild(t, dir, 1, base)
+	f, err := LoadFrontend(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBuild(t, dir, 2, base.Add(time.Minute)) // after the load, before the loop
+	logs := &syncBuffer{}
+	loop := WatchFrontend(f.Assets, f.Shell, 5*time.Millisecond, slog.New(slog.NewTextHandler(logs, nil)))
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- loop.Run(ctx) }()
+	waitFor(t, "the build made before the loop", func() bool { return strings.Contains(pageOf(t, f), "bundle.2.js") })
+	waitFor(t, "the log line", func() bool { return strings.Contains(logs.String(), "a new build of the frontend is served") })
+	stop()
+	<-done
+
+	// Nothing made in between: the first look finds the build that is served, and the log stays empty.
+	same, err := LoadFrontend(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet := &syncBuffer{}
+	loop = WatchFrontend(same.Assets, same.Shell, 5*time.Millisecond, slog.New(slog.NewTextHandler(quiet, nil)))
+	ctx, stop = context.WithCancel(context.Background())
+	go func() { done <- loop.Run(ctx) }()
+	time.Sleep(60 * time.Millisecond)
+	stop()
+	<-done
+	if quiet.String() != "" || !strings.Contains(pageOf(t, same), "bundle.2.js") {
+		t.Errorf("log %q, page %s", quiet.String(), pageOf(t, same))
+	}
 }
 
 func TestWatchFrontendLeavesAMissingManifestAlone(t *testing.T) {

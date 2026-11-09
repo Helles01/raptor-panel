@@ -53,4 +53,4 @@ cannot call the panel. Do it node by node, in a maintenance window (plan 13.3).
 | `raptor dbhost rotate-all` (the passwords of the server databases) | done (`26-cutover-and-operations.md`); running it is still a decision, because passwords written into game server configurations break |
 | `raptor user reset-2fa --all` | done, without a table of its own: the existing setting `pterodactyl:auth:2fa_required` makes people set it up again (`26-cutover-and-operations.md`) |
 | `raptor migrate-secrets --finalize` | done (`26-cutover-and-operations.md`) |
-| `raptor audit` command (the check of the imported database, 13.5) | the owner's separate approval (the report itself is `internal/audit`) |
+| `raptor audit` command (the check of the imported database, 13.5) | done (`27-audit-and-passwords.md`) |\n| taking the passwords of everybody | done in its small form, `raptor user reset-passwords --all` and `user set-password` (`27-audit-and-passwords.md`) |

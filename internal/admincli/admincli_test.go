@@ -34,6 +34,9 @@ type store struct {
 	mailCleared  int
 	twoFactor    int64
 	resets       int
+	usersCount   int64
+	passwords    map[uint64]string
+	allPasswords int
 }
 
 func (s *store) CreateUser(_ context.Context, u users.Record) (uint64, error) {
@@ -83,7 +86,23 @@ func (s *store) DisableAllTwoFactor(context.Context) (int64, error) {
 	return n, nil
 }
 
+func (s *store) CountUsers(context.Context) (int64, error) { return s.usersCount, nil }
+
+func (s *store) SetPassword(_ context.Context, id uint64, hash string) error {
+	if s.passwords == nil {
+		s.passwords = map[uint64]string{}
+	}
+	s.passwords[id] = hash
+	return nil
+}
+
+func (s *store) SetAllPasswords(context.Context, string) (int64, error) {
+	s.allPasswords++
+	return s.usersCount, nil
+}
+
 func (s *store) SetMailPassword(_ context.Context, password string) error {
+
 	s.mailPassword = password
 	return nil
 }
@@ -138,7 +157,7 @@ func TestTheCommandsThereAre(t *testing.T) {
 		sort.Strings(got[g])
 	}
 	want := map[string][]string{
-		"user": {"create", "delete", "disable-2fa", "reset-2fa"}, "apikey": {"create"}, "location": {"create"}, "node": {"create"}, "nest": {"create"}, "egg": {"import"}, "settings": {"list", "set", "set-mail-password"},
+		"user": {"create", "delete", "disable-2fa", "reset-2fa", "reset-passwords", "set-password"}, "apikey": {"create"}, "location": {"create"}, "node": {"create"}, "nest": {"create"}, "egg": {"import"}, "settings": {"list", "set", "set-mail-password"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("commands = %v", got)
@@ -471,6 +490,72 @@ func TestUserReset2FARefusesWhatItCannotDo(t *testing.T) {
 		}
 		if r.st.resets != 0 || r.st.twoFactor != 3 || len(r.st.settings) != 0 {
 			t.Errorf("%s: something was changed", name)
+		}
+	}
+}
+
+func TestUserResetPasswordsWantsYes(t *testing.T) {
+	r := newRun(t)
+	r.st.usersCount = 9
+	err := r.do("", "user", "reset-passwords", "--all")
+	var nc *admin.PasswordsNotConfirmedError
+	if !errors.As(err, &nc) || nc.Count != 9 || isUsage(err) || r.st.allPasswords != 0 || r.stdout.Len() != 0 {
+		t.Fatalf("err = %v, resets %d", err, r.st.allPasswords)
+	}
+	if err := r.do("", "user", "reset-passwords", "--all", "--yes"); err != nil || r.st.allPasswords != 1 || r.stdout.Len() != 0 {
+		t.Fatalf("err = %v, resets %d, stdout %q", err, r.st.allPasswords, r.stdout.String())
+	}
+	if !strings.Contains(r.stderr.String(), "Took the password of 9 user(s)") || !strings.Contains(r.stderr.String(), "set-password") {
+		t.Errorf("stderr = %q", r.stderr.String())
+	}
+}
+
+func TestUserResetPasswordsRefusesWhatItCannotDo(t *testing.T) {
+	for name, args := range map[string][]string{
+		"without --all":           {"--yes"},
+		"nothing at all":          {},
+		"a user instead of --all": {"ann"},
+		"a flag nobody knows":     {"--all", "--yes", "--force"},
+	} {
+		r := newRun(t)
+		if err := r.do("", "user", "reset-passwords", args...); !isUsage(err) || r.st.allPasswords != 0 {
+			t.Errorf("%s: err = %v, resets %d", name, err, r.st.allPasswords)
+		}
+	}
+}
+
+func TestUserSetPassword(t *testing.T) {
+	r := newRun(t)
+	// From the standard input: nothing is printed, because the caller has it.
+	if err := r.do("a long enough password\n", "user", "set-password", "ann", "--password-stdin"); err != nil || !auth.VerifyPassword(r.st.passwords[1], "a long enough password") || r.stdout.Len() != 0 {
+		t.Fatalf("err = %v, stdout %q", err, r.stdout.String())
+	}
+	if !strings.Contains(r.stderr.String(), "Gave ann (id 1) a new password") || strings.Contains(r.stderr.String(), "a long enough password") {
+		t.Errorf("stderr = %q", r.stderr.String())
+	}
+	// Without it one is made, shown once on the standard output and nowhere else.
+	if err := r.do("", "user", "set-password", "ben"); err != nil {
+		t.Fatal(err)
+	}
+	made := strings.TrimSpace(r.stdout.String())
+	if made == "" || !auth.VerifyPassword(r.st.passwords[2], made) || strings.Contains(r.stderr.String(), made) {
+		t.Errorf("made %q, stderr %q", made, r.stderr.String())
+	}
+	// What is refused changes nothing.
+	before := len(r.st.passwords)
+	for name, tc := range map[string]struct {
+		stdin string
+		args  []string
+	}{
+		"no user":          {"", []string{}},
+		"two users":        {"", []string{"ann", "ben"}},
+		"an empty line":    {"\n", []string{"ann", "--password-stdin"}},
+		"nothing to read":  {"", []string{"ann", "--password-stdin"}},
+		"a short password": {"short\n", []string{"ann", "--password-stdin"}},
+		"a user unknown":   {"a long enough password\n", []string{"nobody", "--password-stdin"}},
+	} {
+		if err := r.do(tc.stdin, "user", "set-password", tc.args...); err == nil || len(r.st.passwords) != before {
+			t.Errorf("%s: err = %v", name, err)
 		}
 	}
 }

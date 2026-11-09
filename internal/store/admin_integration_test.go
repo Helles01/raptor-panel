@@ -579,3 +579,75 @@ func TestAdminDatabasesForTheRotationOfPasswords(t *testing.T) {
 		t.Errorf("an id too big for the column: %v", err)
 	}
 }
+
+// The passwords on a real database: one user's new password ends their own sessions and reset links only, and taking everybody's password leaves each account a
+// hash that matches nothing, no session and no reset link, and every other column of the users as it was.
+func TestAdminPasswords(t *testing.T) {
+	r := newRig(t)
+	resetAdminTables(r)
+	r.truncate("users", "sessions", "password_resets")
+	svc := r.service()
+	ids := map[string]uint64{}
+	for _, name := range []string{"ada", "bob", "cat"} {
+		created, err := svc.CreateUser(r.ctx, admin.UserInput{Email: name + "@example.com", Username: name, FirstName: "A", LastName: "B", Password: "the first password"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[name] = created.ID
+		r.exec("INSERT INTO sessions (id, user_id, payload, last_activity) VALUES (?, ?, 'x', 1)", "s-"+name, created.ID)
+		r.exec("INSERT INTO password_resets (email, token, created_at) VALUES (?, 'hash', NOW())", name+"@example.com")
+	}
+	r.exec("INSERT INTO sessions (id, user_id, payload, last_activity) VALUES ('s-guest', NULL, 'x', 1)")
+	count := func(q string, args ...any) (n int) { r.sql.QueryRow(q, args...).Scan(&n); return }
+	hashOf := func(name string) (h string) {
+		r.sql.QueryRow("SELECT password FROM users WHERE id = ?", ids[name]).Scan(&h)
+		return
+	}
+
+	// One user: the new password works, their sessions and their reset links are gone, the others' are not.
+	if _, _, err := svc.SetPassword(r.ctx, "bob", "a brand new password"); err != nil {
+		t.Fatal(err)
+	}
+	if !auth.VerifyPassword(hashOf("bob"), "a brand new password") || auth.VerifyPassword(hashOf("bob"), "the first password") {
+		t.Error("the password of bob is not the new one")
+	}
+	if !auth.VerifyPassword(hashOf("ada"), "the first password") {
+		t.Error("the password of another user changed")
+	}
+	if count("SELECT COUNT(*) FROM sessions WHERE user_id = ?", ids["bob"]) != 0 || count("SELECT COUNT(*) FROM sessions") != 3 {
+		t.Error("the sessions of bob, and only his, should be gone")
+	}
+	if count("SELECT COUNT(*) FROM password_resets WHERE email = 'bob@example.com'") != 0 || count("SELECT COUNT(*) FROM password_resets") != 2 {
+		t.Error("the reset links of bob, and only his, should be gone")
+	}
+	// A user who is not there is not found, and nothing changes.
+	if err := r.db.AdminStore().SetPassword(r.ctx, 999999, "$2a$10$x"); !errors.Is(err, admin.ErrNotFound) || count("SELECT COUNT(*) FROM sessions") != 3 {
+		t.Errorf("a user who is not there: %v", err)
+	}
+
+	// Everybody.
+	var nc *admin.PasswordsNotConfirmedError
+	if _, err := svc.ResetAllPasswords(r.ctx, false); !errors.As(err, &nc) || nc.Count != 3 || !auth.VerifyPassword(hashOf("ada"), "the first password") || count("SELECT COUNT(*) FROM sessions") != 3 {
+		t.Fatalf("not confirmed: %v", err)
+	}
+	n, err := svc.ResetAllPasswords(r.ctx, true)
+	if err != nil || n != 3 {
+		t.Fatalf("n = %d, err = %v", n, err)
+	}
+	for name := range ids {
+		h := hashOf(name)
+		if !auth.ValidHash(h) || auth.VerifyPassword(h, "the first password") || auth.VerifyPassword(h, "a brand new password") || auth.VerifyPassword(h, "") {
+			t.Errorf("%s: the hash %q is not an unusable one", name, h)
+		}
+	}
+	if count("SELECT COUNT(*) FROM sessions") != 0 || count("SELECT COUNT(*) FROM password_resets") != 0 {
+		t.Error("a session or a reset link is left")
+	}
+	if count("SELECT COUNT(*) FROM users WHERE email LIKE '%@example.com' AND username IN ('ada','bob','cat')") != 3 {
+		t.Error("a user was changed in some other way")
+	}
+	// The way back in: a new password for one of them, and they can sign in with it.
+	if _, _, err := svc.SetPassword(r.ctx, "ada", "the way back in"); err != nil || !auth.VerifyPassword(hashOf("ada"), "the way back in") {
+		t.Errorf("set-password after the reset: %v", err)
+	}
+}

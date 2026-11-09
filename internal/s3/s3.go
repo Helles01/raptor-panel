@@ -44,6 +44,8 @@ const (
 
 	maxResponse = 1 << 20
 	shortWait   = 30 * time.Second
+	// cleanupWait is how long the check may take to throw away what it made, whether or not it was stopped.
+	cleanupWait = 30 * time.Second
 	// completeWait is how long finishing an upload may take: S3 puts the parts together before it answers, which takes minutes for a big archive.
 	completeWait = 20 * time.Minute
 )

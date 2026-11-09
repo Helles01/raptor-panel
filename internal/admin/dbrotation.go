@@ -59,7 +59,7 @@ func (e *DatabasesNotConfirmedError) Error() string {
 }
 
 // DatabaseFailure is a database whose password could not be changed. Stage says how far it got: "host" means nothing was changed; "store" means the host has the
-// new password and the panel could not keep it, which running the command again puts right.
+// new password and the panel could not keep it, which RotateDatabase puts right (running RotateAll again would change every other database once more).
 type DatabaseFailure struct {
 	ID, HostID uint64
 	Name       string
@@ -83,6 +83,26 @@ func (s *DatabaseRotation) RotateAll(ctx context.Context, hostID *uint64, confir
 	if err != nil {
 		return DatabaseRotationReport{}, err
 	}
+	return s.rotate(ctx, dbs, confirmed)
+}
+
+// RotateDatabase is RotateAll for one database. It is what puts right a database whose report said "store": the host has its new password and the panel does
+// not, and running RotateAll again would give every other database yet another password, after their owners had put the first one into a configuration.
+// ErrNotFound for a database that is not there.
+func (s *DatabaseRotation) RotateDatabase(ctx context.Context, id uint64, confirmed bool) (DatabaseRotationReport, error) {
+	dbs, err := s.store.Databases(ctx, nil)
+	if err != nil {
+		return DatabaseRotationReport{}, err
+	}
+	for _, d := range dbs {
+		if d.ID == id {
+			return s.rotate(ctx, []ServerDatabase{d}, confirmed)
+		}
+	}
+	return DatabaseRotationReport{}, ErrNotFound
+}
+
+func (s *DatabaseRotation) rotate(ctx context.Context, dbs []ServerDatabase, confirmed bool) (DatabaseRotationReport, error) {
 	if !confirmed {
 		return DatabaseRotationReport{}, &DatabasesNotConfirmedError{Count: len(dbs)}
 	}

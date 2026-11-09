@@ -34,6 +34,9 @@ type store struct {
 	mailCleared  int
 	twoFactor    int64
 	resets       int
+	passwords    map[uint64]string
+	usersCount   int64
+	allPasswords []string
 	taken        string
 	noLoc        bool
 	noNest       bool
@@ -137,7 +140,29 @@ func (s *store) DisableAllTwoFactor(context.Context) (int64, error) {
 	return n, nil
 }
 
+func (s *store) CountUsers(context.Context) (int64, error) { return s.usersCount, s.fail }
+
+func (s *store) SetPassword(_ context.Context, id uint64, hash string) error {
+	if s.fail != nil {
+		return s.fail
+	}
+	if s.passwords == nil {
+		s.passwords = map[uint64]string{}
+	}
+	s.passwords[id] = hash
+	return nil
+}
+
+func (s *store) SetAllPasswords(_ context.Context, hash string) (int64, error) {
+	if s.fail != nil {
+		return 0, s.fail
+	}
+	s.allPasswords = append(s.allPasswords, hash)
+	return s.usersCount, nil
+}
+
 func (s *store) SetMailPassword(_ context.Context, password string) error {
+
 	if s.fail != nil {
 		return s.fail
 	}
@@ -490,6 +515,77 @@ func TestResetAllTwoFactor(t *testing.T) {
 	st.fail = errBoom
 	for _, confirmed := range []bool{false, true} {
 		if _, err := s.ResetAllTwoFactor(context.Background(), confirmed); !errors.Is(err, errBoom) {
+			t.Errorf("a store that fails (confirmed %v): %v", confirmed, err)
+		}
+	}
+}
+
+func TestSetPassword(t *testing.T) {
+	ctx := context.Background()
+	s, st := newService(t)
+
+	// A password that is given is the one the user has afterwards, and nothing of it is returned.
+	u, made, err := s.SetPassword(ctx, "ben", "a long enough password")
+	if err != nil || made != "" || u.ID != 2 || !auth.VerifyPassword(st.passwords[2], "a long enough password") {
+		t.Fatalf("given: user %+v, made %q, err %v, stored %q", u, made, err, st.passwords[2])
+	}
+	// A user is found by the address as well, and a password that is left out is made and returned once.
+	u, made, err = s.SetPassword(ctx, "ann@example.com", "")
+	if err != nil || u.ID != 1 || len(made) != generatedPasswordLength || !auth.VerifyPassword(st.passwords[1], made) {
+		t.Fatalf("made: user %+v, made %q, err %v", u, made, err)
+	}
+
+	// What is refused changes nothing: a password that is too short or too long, a user that is not there, a store that fails.
+	before := len(st.passwords)
+	for name, tc := range map[string]struct{ ref, password string }{
+		"too short": {"ben", "short"},
+		"too long":  {"ben", strings.Repeat("x", auth.MaxPasswordBytes+1)},
+		"nobody":    {"nobody", "a long enough password"},
+	} {
+		if _, _, err := s.SetPassword(ctx, tc.ref, tc.password); err == nil || len(st.passwords) != before {
+			t.Errorf("%s: err = %v, passwords %d", name, err, len(st.passwords))
+		}
+	}
+	st.fail = errBoom
+	if _, _, err := s.SetPassword(ctx, "ben", "a long enough password"); !errors.Is(err, errBoom) {
+		t.Errorf("a store that fails: %v", err)
+	}
+}
+
+func TestResetAllPasswords(t *testing.T) {
+	ctx := context.Background()
+	s, st := newService(t)
+	st.usersCount = 4
+
+	// Without the go-ahead nothing changes, and the answer says how many would lose theirs and how to go ahead.
+	n, err := s.ResetAllPasswords(ctx, false)
+	var nc *PasswordsNotConfirmedError
+	if !errors.As(err, &nc) || nc.Count != 4 || n != 0 || len(st.allPasswords) != 0 || !strings.Contains(err.Error(), "--yes") || !strings.Contains(err.Error(), "set-password") {
+		t.Fatalf("not confirmed: n = %d, err = %v", n, err)
+	}
+
+	n, err = s.ResetAllPasswords(ctx, true)
+	if err != nil || n != 4 || len(st.allPasswords) != 1 {
+		t.Fatalf("confirmed: n = %d, err = %v, stored %d", n, err, len(st.allPasswords))
+	}
+	// What every account has is a hash like any other (so nothing else about the account looks wrong), of a text that is kept nowhere: it matches no password.
+	hash := st.allPasswords[0]
+	if !auth.ValidHash(hash) {
+		t.Fatalf("not a hash the panel can check: %q", hash)
+	}
+	for _, guess := range []string{"", "password", "a long enough password", strings.Repeat("a", 48)} {
+		if auth.VerifyPassword(hash, guess) {
+			t.Errorf("%q matches", guess)
+		}
+	}
+	// A second run makes another text, so two runs never leave the same hash.
+	if _, err := s.ResetAllPasswords(ctx, true); err != nil || len(st.allPasswords) != 2 || st.allPasswords[1] == hash {
+		t.Errorf("again: err = %v, hashes equal %v", err, len(st.allPasswords) == 2 && st.allPasswords[1] == hash)
+	}
+
+	st.fail = errBoom
+	for _, confirmed := range []bool{false, true} {
+		if _, err := s.ResetAllPasswords(ctx, confirmed); !errors.Is(err, errBoom) {
 			t.Errorf("a store that fails (confirmed %v): %v", confirmed, err)
 		}
 	}

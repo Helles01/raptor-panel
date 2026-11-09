@@ -14,6 +14,7 @@ import (
 type rotDBStore struct {
 	dbs       []admin.ServerDatabase
 	passwords map[uint64]string
+	setFail   map[uint64]error
 }
 
 func (s *rotDBStore) Databases(_ context.Context, host *uint64) ([]admin.ServerDatabase, error) {
@@ -27,6 +28,9 @@ func (s *rotDBStore) Databases(_ context.Context, host *uint64) ([]admin.ServerD
 }
 
 func (s *rotDBStore) SetPassword(_ context.Context, id uint64, pw string) error {
+	if err := s.setFail[id]; err != nil {
+		return err
+	}
 	if s.passwords == nil {
 		s.passwords = map[uint64]string{}
 	}
@@ -123,13 +127,42 @@ func TestDbhostRotateAllSaysWhatFailed(t *testing.T) {
 	}
 }
 
+// The host has the new password and the panel could not keep it: the command names the one database to do again, not the whole run, and doing that touches
+// only it.
+func TestDbhostRotateAllSaysHowToPutRightWhatTheStoreLost(t *testing.T) {
+	r := newRotRun(t)
+	r.st.setFail = map[uint64]error{2: errors.New("the store is down")}
+	err := r.do("--yes")
+	if err == nil || isUsage(err) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(r.stderr.String(), "run `dbhost rotate-all --database 2 --yes`") {
+		t.Errorf("stderr = %q", r.stderr.String())
+	}
+	r.st.setFail = nil
+	r.hosts.ran = nil
+	before := map[uint64]string{1: r.st.passwords[1], 3: r.st.passwords[3]}
+	if err := r.do("--database", "2", "--yes"); err != nil || len(r.hosts.ran) != 1 || r.st.passwords[2] == "" || r.st.passwords[1] != before[1] || r.st.passwords[3] != before[3] {
+		t.Errorf("err = %v, host runs %v, passwords %v", err, r.hosts.ran, r.st.passwords)
+	}
+	var nc *admin.DatabasesNotConfirmedError
+	if err := r.do("--database", "3"); !errors.As(err, &nc) || nc.Count != 1 {
+		t.Errorf("the count of one database: %v", err)
+	}
+	if err := r.do("--database", "99", "--yes"); !errors.Is(err, admin.ErrNotFound) {
+		t.Errorf("a database that is not there: %v", err)
+	}
+}
+
 func TestDbhostRotateAllRefusesWhatItCannotDo(t *testing.T) {
 	for name, args := range map[string][]string{
-		"a host of 0":          {"--host", "0", "--yes"},
-		"a host that is no id": {"--host", "first", "--yes"},
-		"a negative host":      {"--host", "-1", "--yes"},
-		"an argument":          {"everything"},
-		"a flag nobody knows":  {"--all", "--yes"},
+		"a database of 0":       {"--database", "0", "--yes"},
+		"a host and a database": {"--host", "1", "--database", "1", "--yes"},
+		"a host of 0":           {"--host", "0", "--yes"},
+		"a host that is no id":  {"--host", "first", "--yes"},
+		"a negative host":       {"--host", "-1", "--yes"},
+		"an argument":           {"everything"},
+		"a flag nobody knows":   {"--all", "--yes"},
 	} {
 		r := newRotRun(t)
 		if err := r.do(args...); !isUsage(err) || len(r.hosts.ran) != 0 || len(r.st.passwords) != 0 {
